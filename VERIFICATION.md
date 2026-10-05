@@ -1,6 +1,12 @@
 # BDF Egypt verification
 
-Validated locally on 2026-10-05. Vercel deployment is blocked: the connected app returned HTTP 403, `You don't have permission to create the project.` No live URL has been issued.
+Validated locally and deployed to production on 2026-10-05. Public URL: https://bdf-egypt.vercel.app/
+
+Production deployment `dpl_Fs81HPuV7edeCzJrmFSZLUfkKrwb` reached READY from commit `263e95f1c4b8fb6249efc15782c9295d48967e52`. Imported through the authenticated Vercel browser interface after the connector could not create the project.
+
+## Production smoke checks
+
+The public homepage rendered the Arabic toolkit. Uploaded synthetic PDFs through the UI; merging produced a ready download result. Password protection ran through the deployed Python API and produced a ready encrypted PDF result in two seconds. Cloud browser download synchronization did not complete within the observation timeout, so these production checks confirm generated results in the UI; binary roundtrip/download contents were verified in the local tests below.
 
 ## Browser checks
 
@@ -21,4 +27,4 @@ Unit tests cover Arabic page ranges, invalid/out-of-range inputs, merge, page se
 
 ## Limits of verification
 
-Native camera hardware capture was not exercised; image upload for the scanner was. Conversion-worker PDF/A/searchable-OCR tools and AI provider calls were not activated or tested live. The advanced tools display disabled activation state when their service is absent. Production Vercel API bundling and runtime have not been verified because project creation was denied. Office conversion accuracy beyond the synthetic fixtures is not guaranteed; see README.
+Native camera hardware capture was not exercised; image upload for the scanner was. Conversion-worker PDF/A/searchable-OCR tools and AI provider calls were not activated or tested live. The advanced tools display disabled activation state when their service is absent. Production Python security API bundling and execution were verified through the deployed UI. Office conversion accuracy beyond the synthetic fixtures is not guaranteed; see README.
