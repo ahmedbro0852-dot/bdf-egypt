@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {PDFDocument} from 'pdf-lib';
+import {pageRange,mergeFiles,selectPages,rotatePages,numberPages} from '../src/engine.js';
+assert.deepEqual(pageRange('١،٣،٥-٦',6),[0,2,4,5]);
+assert.deepEqual(pageRange('3,1,3',3,{duplicates:true}),[2,0,2]);
+assert.throws(()=>pageRange('0',2));assert.throws(()=>pageRange('4-2',5));assert.throws(()=>pageRange('3',2));
+const first=await PDFDocument.create();first.addPage([300,400]);first.addPage([400,500]);
+const second=await PDFDocument.create();second.addPage([500,600]);
+const files=[new File([await first.save()],'a.pdf'),new File([await second.save()],'b.pdf')];
+const merged=await mergeFiles(files);assert.equal(merged.getPageCount(),3);
+const ordered=await selectPages(merged,[2,0,2]);assert.equal(ordered.getPage(0).getWidth(),500);assert.equal(ordered.getPage(1).getWidth(),300);
+rotatePages(ordered,90);assert.equal(ordered.getPage(0).getRotation().angle,90);
+await numberPages(ordered,'bottom',1);const roundtrip=await PDFDocument.load(await ordered.save());assert.equal(roundtrip.getPageCount(),3);
+console.log('PASS: Arabic ranges, invalid inputs, merge, page order, duplicates, rotate, numbering and PDF roundtrip');
