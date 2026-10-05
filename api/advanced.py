@@ -1,7 +1,8 @@
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-import os, json, secrets
+import os, json
+from api.subscription import verify_license
 
 class handler(BaseHTTPRequestHandler):
     def respond(self,status,data):
@@ -12,13 +13,15 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
     def do_GET(self):
-        self.respond(200,{'conversion':bool(os.getenv('CONVERSION_SERVICE_URL') and os.getenv('CONVERSION_SERVICE_TOKEN')),'ai':bool(os.getenv('AI_API_KEY') and os.getenv('AI_MODEL') and os.getenv('AI_ACCESS_TOKEN'))})
+        self.respond(200,{'conversion':bool(os.getenv('CONVERSION_SERVICE_URL') and os.getenv('CONVERSION_SERVICE_TOKEN')),'ai':bool(os.getenv('AI_API_KEY') and os.getenv('AI_MODEL') and os.getenv('AI_ENABLED')=='1')})
     def do_POST(self):
         try:
             length=int(self.headers.get('Content-Length','0'))
             if not 0<length<4*1024*1024:return self.respond(413,{'error':'الطلب أكبر من حد الخدمة.'})
             data=json.loads(self.rfile.read(length))
             action=data.get('action')
+            try:verify_license(self.headers.get('Authorization','').removeprefix('Bearer '))
+            except ValueError as err:return self.respond(403,{'error':str(err)})
             if action in ('pdfa','searchable'):
                 url=os.getenv('CONVERSION_SERVICE_URL','').rstrip('/')
                 token=os.getenv('CONVERSION_SERVICE_TOKEN','')
@@ -28,9 +31,8 @@ class handler(BaseHTTPRequestHandler):
                 with urlopen(req,timeout=50) as response:result=json.load(response)
                 return self.respond(200,result)
             if action in ('summarize','translate'):
-                key=os.getenv('AI_API_KEY','');model=os.getenv('AI_MODEL','');access=os.getenv('AI_ACCESS_TOKEN','')
-                if not key or not model or not access:return self.respond(503,{'error':'خدمة الذكاء الاصطناعي لم تُفعّل بعد.'})
-                if not secrets.compare_digest(self.headers.get('Authorization',''),'Bearer '+access):return self.respond(401,{'error':'رمز الوصول للخدمة غير صحيح.'})
+                key=os.getenv('AI_API_KEY','');model=os.getenv('AI_MODEL','');enabled=os.getenv('AI_ENABLED','0')
+                if not key or not model or enabled!='1':return self.respond(503,{'error':'خدمة الذكاء الاصطناعي لم تُفعّل بعد.'})
                 text=data.get('content','')
                 language=data.get('language','Arabic')
                 if language not in ('Arabic','English','French','German'):raise ValueError('Invalid language')

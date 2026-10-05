@@ -28,3 +28,7 @@ Unit tests cover Arabic page ranges, invalid/out-of-range inputs, merge, page se
 ## Limits of verification
 
 Native camera hardware capture was not exercised; image upload for the scanner was. Conversion-worker PDF/A/searchable-OCR tools and AI provider calls were not activated or tested live. The advanced tools display disabled activation state when their service is absent. Production Python security API bundling and execution were verified through the deployed UI. Office conversion accuracy beyond the synthetic fixtures is not guaranteed; see README.
+
+## Manual subscription update, 2026-10-05
+
+Build and existing PDF core tests passed. Three real-HTTP subscription tests cover all four plans, administrator authorization, exact-price enforcement, payment confirmation, expired codes and modified signatures. Browser tests exercised `/pricing` → unavailable-payment state (no WhatsApp supplied), `/admin` → synthetic code issuance, activation and revalidation after reload, Pro saved preset restore, two-file rotation batch with actual PDF output angles, removal of local activation, and the remaining free single-file workflow. Mobile pricing at 390px has no document overflow; no frontend page errors were observed. Advanced service rejects an unauthenticated caller and returns unavailable for an authenticated caller while AI is not configured. No actual payment or AI provider call was made. Production subscription environment values were provisioned encrypted; owner credentials are delivered privately and excluded from git.

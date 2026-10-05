@@ -51,6 +51,6 @@ export async function advanced(action,file,o){
  let content;const isAI=['summarize','translate'].includes(action);
  if(isAI){content=(await extractText(file)).join('\n\n');if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
  else{const b=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<b.length;i+=8192)raw+=String.fromCharCode(...b.subarray(i,i+8192));content=btoa(raw);}
- const response=await fetch('/api/advanced',{method:'POST',headers:{'Content-Type':'application/json',...(isAI?{Authorization:'Bearer '+(o.accessToken||'')}:{})},body:JSON.stringify({action,content,language:o.language||'Arabic'})});const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
+ const response=await fetch('/api/advanced',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
  return isAI?[{data:data.text,name:'BDF-Egypt-'+action+'.txt',type:'text/plain;charset=utf-8',preview:data.text}]:[{data:Uint8Array.from(atob(data.file),c=>c.charCodeAt(0)),name:'BDF-Egypt-'+action+'.pdf',type:'application/pdf'}];
 }
