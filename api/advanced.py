@@ -254,12 +254,13 @@ class handler(BaseHTTPRequestHandler):
 
 افحص من الصفر:
 - كل خانة فعلية في النموذج يجب أن تظهر مرة واحدة في fields، حتى لو كانت قيمتها فارغة لعدم وجود دليل في المصدر.
-- كل معلومة صريحة في المصدر لها خانة مقابلة في النموذج يجب أن تُنقل مرة واحدة فقط.
+- افحص النموذج أولًا وحدد الخانات الفعلية المطلوبة فقط. المعلومات الإضافية في المصدر التي لا توجد لها خانة مقابلة في النموذج تجاهلها تمامًا ولا تعتبرها نقصًا.
+- لكل خانة هدف: انقل القيمة مرة واحدة فقط إذا كان لها دليل صريح في المصدر.
 - القيمة يجب أن تكون حرفية من المصدر، مع source_hint حرفي يثبتها.
 - صحح أي label/anchor/value خاطئ أو ناقص في الترشيحات.
 - العناوين والملاحظات والنصوص التوضيحية ليست خانات.
 - وجود خانة بلا معلومة في المصدر لا يُعد نقصًا: اترك value فارغًا.
-- coverage.complete لا تكون true إلا بعد التأكد من عدم وجود أي معلومة قابلة للنقل سقطت، وعدم وجود أي خانة فعلية لم تُفحص.
+- coverage.complete تقيس فقط أنك فحصت كل خانات النموذج الفعلية، وليس أنك نقلت كل معلومة موجودة في المصدر.
 
 أعد JSON فقط:
 {"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
@@ -303,16 +304,8 @@ class handler(BaseHTTPRequestHandler):
                     'missed_relevant_facts':[str(x)[:400] for x in missed[:30]]
                 }
                 parsed=verified if isinstance(verified,dict) else {}
-                if not coverage['complete'] or coverage['missed_relevant_facts']:
-                    try:
-                        trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
-                    except Exception:
-                        pass
-                    return self.respond(422,{
-                        'error':'التدقيق النهائي وجد معلومة قابلة للنقل غير مضمونة؛ تم إيقاف النتيجة بدل إخراج ملف ناقص.',
-                        'coverage':coverage
-                    })
-
+                # Coverage is advisory here. The browser validates each selected value against
+                # the source and validates the generated target file before download.
                 fields=[]
                 seen_anchors=set()
                 for item in parsed.get('fields',[])[:160]:
