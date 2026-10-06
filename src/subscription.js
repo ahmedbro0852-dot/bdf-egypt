@@ -1,12 +1,12 @@
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let plans=[{months:1,price:42},{months:3,price:108},{months:6,price:196},{months:12,price:328}];
-let aiPlans=[{files:100,price:300},{files:500,price:1200},{files:1000,price:2000}];
+let aiPlans=[{files:1,price:42},{files:100,price:300},{files:500,price:1200},{files:1000,price:2000}];
 let membership=null,token='',aiPack=null,aiToken='',config={ready:false,whatsapp:'',freeLimits:{files:5,mb:25},proLimits:{files:40,mb:100},monthlyAiCredits:100},show,notify;
 
 export const batchIds=['compress','rotate','watermark','numbers','grayscale','text'];
 export function hasPremium(){return !!membership&&membership.expires*1000>Date.now();}
 export function membershipToken(){return hasPremium()?token:'';}
-export function hasAiPack(){return !!aiPack&&aiPack.kind==='ai_files'&&[100,500,1000].includes(Number(aiPack.files));}
+export function hasAiPack(){return !!aiPack&&aiPack.kind==='ai_files'&&[1,100,500,1000].includes(Number(aiPack.files));}
 export function aiPackToken(){return hasAiPack()?aiToken:'';}
 export function aiPackInfo(){return hasAiPack()?aiPack:null;}
 export function usageLimits(){const raw=hasPremium()?config.proLimits:config.freeLimits;return {files:Number(raw?.files)||(hasPremium()?40:5),mb:Number(raw?.mb)||(hasPremium()?100:25)};}
@@ -57,13 +57,15 @@ export function openPricing(push=true){
  </div>
 
  <h3 class="pricing-section-title">باقات تعبئة ونقل البيانات بالذكاء الاصطناعي</h3>
+ <p class="pricing-note"><strong>مهم:</strong> سعر 42ج هنا = معالجة <strong>ملف واحد فقط</strong>. أما باقة 100 ملف = 300ج، يعني <strong>3ج للملف شامل كل المزايا</strong>: استخراج البيانات، المطابقة، وضعها في مكانها الصحيح، الحفاظ على التنسيق، المعاينة، والتنزيل.</p>
  <p class="pricing-note">الرصيد لا يتجدد شهريًا: كل عملية تعبئة ناجحة تخصم نقطة واحدة فقط، والنقاط المتبقية تفضل على الكود حتى استخدامها.</p>
- <div class="plan-grid">${aiPlans.map((p,i)=>{const per=(p.price/p.files).toFixed(2).replace('.00','');const normal=Math.round(p.files*basePerFile);const saving=Math.max(0,normal-p.price);return `<article class="plan-card ${p.files===500?'recommended':''}">${p.files===500?'<span class="best-value">الأكثر طلبًا</span>':p.files===1000?'<span class="best-value">أفضل توفير</span>':''}<span class="plan-duration">${p.files} ملف AI</span><h3>${p.price}<small>جنيه</small></h3><p>${per} ج / ملف تقريبًا</p>${saving?`<strong class="plan-saving">وفر ${saving} ج</strong>`:'<span class="plan-saving neutral">باقة البداية</span>'}<button class="primary" data-ai-files="${p.files}">اشحن ${p.files} نقطة</button><small>1 نقطة = معالجة ملف واحد</small></article>`;}).join('')}</div>
+ <div class="plan-grid">${aiPlans.map((p,i)=>{const per=(p.price/p.files).toFixed(2).replace('.00','');const normal=Math.round(p.files*basePerFile);const saving=Math.max(0,normal-p.price);return `<article class="plan-card ${p.files===500?'recommended':''}">${p.files===1?'<span class="best-value">ملف واحد فقط</span>':p.files===500?'<span class="best-value">الأكثر طلبًا</span>':p.files===1000?'<span class="best-value">أفضل توفير</span>':''}<span class="plan-duration">${p.files===1?'ملف AI واحد فقط':p.files+' ملف AI'}</span><h3>${p.price}<small>جنيه</small></h3><p>${p.files===1?'42 ج للملف الواحد فقط':per+' ج / ملف شامل كل المزايا'}</p>${saving?`<strong class="plan-saving">وفر ${saving} ج</strong>`:'<span class="plan-saving neutral">باقة البداية</span>'}<button class="primary" data-ai-files="${p.files}">اشحن ${p.files} نقطة</button><small>1 نقطة = معالجة ملف واحد</small></article>`;}).join('')}</div>
 
  ${hasAiPack()?`<div class="membership-status"><strong>رصيد AI مفعّل</strong><span>الباقة الأصلية: ${aiPack.files} ملف</span><button id="deactivate-ai" class="text-button">إزالة الكود من الجهاز</button></div>`:''}
  <form id="activate-ai-form" class="activation-form"><label for="ai-activation-code">عندك كود رصيد ملفات AI؟</label><textarea id="ai-activation-code" required placeholder="الصق كود رصيد الملفات هنا" dir="ltr" autocomplete="off"></textarea><button class="primary" type="submit">تفعيل رصيد AI</button><p id="ai-activation-message" role="status"></p></form>
 
  <h3 class="pricing-section-title">اشتراك BDF Egypt Pro</h3>
+ <p class="pricing-note">اشتراك Pro منفصل عن رصيد ملفات AI. لو هدفك تعبئة ونقل البيانات، اختار باقات الملفات الموجودة فوق.</p>
  <div class="tier-summary">
   <article class="tier-card free-tier"><span class="tier-kicker">FREE</span><h3>مجاني</h3><p>للمهام اليومية السريعة.</p><ul><li>حتى ${freeFiles} ملفات في العملية</li><li>حتى ${freeMb} MB إجماليًا</li><li>23 أداة مجانية</li></ul><div class="tier-price"><strong>0 ج</strong><span>دائمًا</span></div></article>
   <article class="tier-card pro-tier"><span class="tier-kicker">PRO</span><span class="pro-crown">أدوات أكثر</span><h3>Pro</h3><p>للشغل الكثيف والتحويلات المتقدمة.</p><ul><li>حتى ${proFiles} ملفًا في العملية</li><li>حتى ${proMb} MB إجماليًا</li><li>17 أداة Pro</li><li>${credits} كريدت AI شهريًا للأدوات العامة</li></ul><div class="tier-price"><strong>من ${Math.min(...plans.map(p=>p.price))} ج</strong><span>حسب المدة</span></div></article>
