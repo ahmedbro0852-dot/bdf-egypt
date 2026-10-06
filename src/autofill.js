@@ -6,6 +6,7 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PDFDocument } from 'pdf-lib';
 import { hasAiPack, aiPackToken } from './subscription.js';
+import {saveCloudFiles,uploadCloudBlob} from './cloud-files.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;
 const E=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -351,7 +352,7 @@ function csv(fields){const rows=[['field','value','confidence'],...fields.filter
 export function openAutofill(ctx){
   const root=ctx.root,icon=ctx.icon,refreshIcons=ctx.refreshIcons,toast=ctx.toast,onClose=ctx.onClose;
   revoke();
-  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],busy=false;
+  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],busy=false,savedInputs=false;
   root.innerHTML='<div class="modal-backdrop"><section class="workspace af-workspace" role="dialog" aria-modal="true">'+
     '<header class="workspace-header"><span class="service-logo service-logo-ai"><strong>AI</strong><span>'+icon('FileInput')+'</span></span><div><div class="workspace-title-row"><h2>تعبئة ونقل البيانات الذكي</h2><span class="workspace-tier pro">PRO</span></div><p>ارفع ملف البيانات والنموذج، وراجع النتيجة داخل BDF Egypt قبل التنزيل.</p></div><button class="icon-btn" id="af-close">'+icon('X')+'</button></header>'+
     '<div class="af-body"><div class="af-upload-grid">'+
@@ -395,7 +396,7 @@ export function openAutofill(ctx){
       const trialCode=q('#af-trial')?.value.trim()||'';
       const aiResult=await askAI(source,target.text,trialCode);
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
-      filled=await build();placements=filled.placements||[];q('#af-review').hidden=false;render();
+      filled=await build();placements=filled.placements||[];if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
       status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من 3 تجارب.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
   };
@@ -413,19 +414,19 @@ export function openAutofill(ctx){
   q('#af-download').onclick=async()=>{
     error('');lock(true,'جاري تجهيز الملف…');
     try{
-      filled=await build();const fmt=q('#af-format').value,b=baseName();
-      if(fmt==='same')dl(filled.blob,b+(filled.kind==='docx'?'.docx':filled.kind==='pdf'?'.pdf':'.txt'));
-      else if(fmt==='json')dl(new Blob([JSON.stringify(Object.fromEntries(fields.filter(f=>f.enabled).map(f=>[f.label,f.value])),null,2)],{type:'application/json;charset=utf-8'}),b+'.json');
-      else if(fmt==='csv')dl(csv(fields),b+'.csv');
-      else if(fmt==='txt')dl(new Blob([fields.filter(f=>f.enabled).map(f=>f.label+': '+f.value).join('\n')],{type:'text/plain;charset=utf-8'}),b+'.txt');
+      filled=await build();const fmt=q('#af-format').value,b=baseName();const saveAndDl=async(blob,name)=>{try{await uploadCloudBlob(blob,name,{toolId:'autofill',kind:'output'});}catch{}dl(blob,name);};
+      if(fmt==='same')await saveAndDl(filled.blob,b+(filled.kind==='docx'?'.docx':filled.kind==='pdf'?'.pdf':'.txt'));
+      else if(fmt==='json')await saveAndDl(new Blob([JSON.stringify(Object.fromEntries(fields.filter(f=>f.enabled).map(f=>[f.label,f.value])),null,2)],{type:'application/json;charset=utf-8'}),b+'.json');
+      else if(fmt==='csv')await saveAndDl(csv(fields),b+'.csv');
+      else if(fmt==='txt')await saveAndDl(new Blob([fields.filter(f=>f.enabled).map(f=>f.label+': '+f.value).join('\n')],{type:'text/plain;charset=utf-8'}),b+'.txt');
       else if(fmt==='pdf'){
-        if(filled.kind==='pdf')dl(filled.blob,b+'.pdf');
-        else dl(await pdfFromHtml(filled.kind==='docx'?await previewDocx(filled.blob):'<pre>'+E(filled.text||'')+'</pre>'),b+'.pdf');
+        if(filled.kind==='pdf')await saveAndDl(filled.blob,b+'.pdf');
+        else await saveAndDl(await pdfFromHtml(filled.kind==='docx'?await previewDocx(filled.blob):'<pre>'+E(filled.text||'')+'</pre>'),b+'.pdf');
       }else if(fmt==='docx'){
-        if(filled.kind==='docx')dl(filled.blob,b+'.docx');
+        if(filled.kind==='docx')await saveAndDl(filled.blob,b+'.docx');
         else{
           const D=await import('docx'),doc=new D.Document({sections:[{children:fields.filter(f=>f.enabled).map(f=>new D.Paragraph({children:[new D.TextRun({text:f.label+': ',bold:true}),new D.TextRun(f.value)]}))}]});
-          dl(await D.Packer.toBlob(doc),b+'.docx');
+          await saveAndDl(await D.Packer.toBlob(doc),b+'.docx');
         }
       }
       status('تم تجهيز الملف.');
