@@ -205,6 +205,9 @@ class handler(BaseHTTPRequestHandler):
 5) حافظ حرفيًا على الأسماء والأرقام والتواريخ وأرقام الهوية والهواتف والبريد؛ لا تعِد تنسيقها ولا تصححها من عندك.
 6) لو يوجد أكثر من احتمال لنفس الخانة، اختر فقط الأقوى واخفض confidence. لو لا يوجد دليل كافٍ اترك value فارغًا.
 7) لا تملأ عنوان قسم أو شرح أو ملاحظة على أنه حقل.
+8) افحص النموذج كاملًا: كل خانة فعلية قابلة للتعبئة يجب أن تظهر في fields مرة واحدة حتى لو لم تجد لها قيمة؛ وقتها اجعل value فارغًا.
+9) افحص ملف المصدر كاملًا: كل معلومة صريحة لها خانة مقابلة في النموذج يجب ربطها مرة واحدة، ولا يجوز إسقاط أي معلومة قابلة للنقل.
+10) لا تعتبر المهمة مكتملة لو بقيت خانة فعلية في النموذج غير مفحوصة أو معلومة صريحة لها خانة مقابلة ولم تُنقل.
 
 أعد JSON صالحًا فقط بالشكل:
 {"fields":[{"label":"اسم الخانة كما يظهر","anchor":"نص الحقل المطابق حرفيًا","value":"القيمة من المصدر أو فارغ","confidence":0.0,"source_hint":"مقتطف حرفي من المصدر يثبت القيمة"}],"notes":[]}
@@ -245,6 +248,71 @@ class handler(BaseHTTPRequestHandler):
                         pass
                     return self.respond(502,{'error':'تم تحليل الملفين لكن النتيجة غير صالحة. أعد المحاولة.'})
 
+                # مراجعة ثانية مستقلة: لا نسمح بالتنزيل اعتمادًا على مرور واحد للذكاء.
+                # المدقق يعيد فحص المصدر + النموذج + الترشيحات ويصحح أي إسقاط/ربط خاطئ.
+                verifier_prompt='''أنت مدقق نهائي مستقل لتعبئة النماذج. المطلوب دقة محافظة: لا تخمّن مطلقًا، ولا تسمح بإسقاط معلومة صريحة لها خانة مقابلة.
+
+افحص من الصفر:
+- كل خانة فعلية في النموذج يجب أن تظهر مرة واحدة في fields، حتى لو كانت قيمتها فارغة لعدم وجود دليل في المصدر.
+- كل معلومة صريحة في المصدر لها خانة مقابلة في النموذج يجب أن تُنقل مرة واحدة فقط.
+- القيمة يجب أن تكون حرفية من المصدر، مع source_hint حرفي يثبتها.
+- صحح أي label/anchor/value خاطئ أو ناقص في الترشيحات.
+- العناوين والملاحظات والنصوص التوضيحية ليست خانات.
+- وجود خانة بلا معلومة في المصدر لا يُعد نقصًا: اترك value فارغًا.
+- coverage.complete لا تكون true إلا بعد التأكد من عدم وجود أي معلومة قابلة للنقل سقطت، وعدم وجود أي خانة فعلية لم تُفحص.
+
+أعد JSON فقط:
+{"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
+'''
+                verifier_user='=== المصدر ===\n'+source_text+'\n\n=== النموذج ===\n'+target_text+'\n\n=== ترشيحات المرور الأول ===\n'+json.dumps(parsed,ensure_ascii=False)
+                verifier_request={
+                    'model':model,
+                    'max_tokens':6500,
+                    'messages':[
+                        {'role':'system','content':verifier_prompt},
+                        {'role':'user','content':verifier_user}
+                    ]
+                }
+                verifier_req=Request(
+                    base+'/chat/completions',
+                    data=json.dumps(verifier_request).encode(),
+                    headers={'Content-Type':'application/json','Authorization':'Bearer '+key}
+                )
+                try:
+                    with urlopen(verifier_req,timeout=65) as response:
+                        verifier_result=json.load(response)
+                    verifier_raw=verifier_result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
+                    vstart=verifier_raw.find('{')
+                    vend=verifier_raw.rfind('}')
+                    verified=json.loads(verifier_raw[vstart:vend+1] if vstart>=0 and vend>vstart else verifier_raw)
+                except Exception:
+                    try:
+                        trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
+                    except Exception:
+                        pass
+                    return self.respond(502,{'error':'فشل التدقيق النهائي؛ لم يتم اعتماد النقل ولم تُحسب المحاولة.'})
+
+                coverage=verified.get('coverage',{}) if isinstance(verified,dict) else {}
+                missed=coverage.get('missed_relevant_facts',[]) if isinstance(coverage,dict) else []
+                if not isinstance(missed,list):
+                    missed=[]
+                coverage={
+                    'complete':bool(coverage.get('complete',False)) if isinstance(coverage,dict) else False,
+                    'target_fields_checked':int(coverage.get('target_fields_checked',0) or 0) if isinstance(coverage,dict) else 0,
+                    'source_facts_checked':int(coverage.get('source_facts_checked',0) or 0) if isinstance(coverage,dict) else 0,
+                    'missed_relevant_facts':[str(x)[:400] for x in missed[:30]]
+                }
+                parsed=verified if isinstance(verified,dict) else {}
+                if not coverage['complete'] or coverage['missed_relevant_facts']:
+                    try:
+                        trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
+                    except Exception:
+                        pass
+                    return self.respond(422,{
+                        'error':'التدقيق النهائي وجد معلومة قابلة للنقل غير مضمونة؛ تم إيقاف النتيجة بدل إخراج ملف ناقص.',
+                        'coverage':coverage
+                    })
+
                 fields=[]
                 seen_anchors=set()
                 for item in parsed.get('fields',[])[:160]:
@@ -273,7 +341,7 @@ class handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                     return self.respond(400,{'error':'لم أجد خانات واضحة قابلة للتعبئة.'})
-                return self.respond(200,{'fields':fields,'notes':parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else [],'credits':credits,'trial':trial_mode,'filePack':pack_mode})
+                return self.respond(200,{'fields':fields,'coverage':coverage,'notes':parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else [],'credits':credits,'trial':trial_mode,'filePack':pack_mode})
 
             if action in ('summarize','translate'):
                 if not pack_mode:
