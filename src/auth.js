@@ -104,6 +104,7 @@ export async function initAuth(){
   return {user,error:callback?.error||'',googleEnabled:!!authSettings?.external?.google};
 }
 export function currentUser(){return session?.user||null;}
+export function authToken(){return session?.access_token||'';}
 export async function signIn(email,password){
   const data=await request('/token?grant_type=password',{method:'POST',body:{email,password}});
   save(normalize(data));
