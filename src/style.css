@@ -752,3 +752,180 @@ progress{accent-color:#e5322d}
     z-index:3;
   }
 }
+
+
+/* 2026-10 identity and typography refinement */
+:root{
+  --brand:#e5322d;
+  --brand-dark:#c92c27;
+  --brand-soft:#fff1f0;
+  --text-strong:#2f2f33;
+  --text-soft:#73747c;
+}
+body{
+  font-family:"Segoe UI",Tahoma,Arial,sans-serif;
+  font-size:15px;
+  line-height:1.65;
+}
+.brand{
+  gap:9px;
+  font-size:23px;
+  letter-spacing:-.6px;
+  font-weight:800;
+}
+.brand-logo{
+  width:38px;
+  height:38px;
+  display:block;
+  flex:0 0 auto;
+}
+.brand>span:last-child{
+  gap:5px;
+}
+.brand>span:last-child span{
+  font-size:12px;
+  letter-spacing:1.4px;
+  color:var(--brand);
+}
+.top-caption{
+  font-size:13px;
+}
+.nav-item{
+  font-size:12.5px;
+  font-weight:500;
+}
+.nav-item.selected{
+  color:var(--brand);
+}
+.pricing-button{
+  font-size:13px;
+  font-weight:650;
+}
+.eyebrow{
+  font-size:11.5px;
+  letter-spacing:.2px;
+}
+h1{
+  font-size:38px;
+  line-height:1.13;
+  font-weight:800;
+  letter-spacing:-1px;
+  color:var(--text-strong);
+}
+.intro p{
+  font-size:15px;
+  line-height:1.7;
+  color:var(--text-soft);
+}
+.intro-tags span{
+  font-size:11.5px;
+}
+.section-top h2{
+  font-size:23px;
+  line-height:1.3;
+  font-weight:750;
+}
+.section-top p{
+  font-size:12.5px;
+}
+.search input{
+  font-size:13.5px;
+}
+.tool-card h3{
+  font-size:14.5px;
+  line-height:1.45;
+  font-weight:700;
+}
+.tool-card p{
+  font-size:12px;
+  line-height:1.6;
+}
+.card-bottom{
+  font-size:10.5px;
+}
+.tool-icon{
+  width:44px;
+  height:44px;
+}
+.tool-icon svg{
+  width:23px;
+  height:23px;
+}
+.primary,.secondary{
+  font-size:13.5px;
+  font-weight:650;
+}
+.workspace-header h2{
+  font-size:19px;
+}
+.workspace-header p{
+  font-size:12.5px;
+}
+.dropzone h3{
+  font-size:20px;
+}
+.dropzone p{
+  font-size:13px;
+}
+.dropzone small{
+  font-size:11px;
+}
+.options h3{
+  font-size:15px;
+}
+.field{
+  font-size:13px;
+}
+.field input,.field select,.field textarea{
+  font-size:13px;
+}
+.notice,.field-hint,.local-caption{
+  font-size:11.5px;
+}
+.plan-card h3{
+  font-size:34px;
+}
+.plan-card p{
+  font-size:12px;
+}
+.info-modal h2{
+  font-size:20px;
+}
+.info-modal p{
+  font-size:14px;
+}
+@media(max-width:700px){
+  .brand{
+    font-size:20px;
+    gap:7px;
+  }
+  .brand-logo{
+    width:34px;
+    height:34px;
+  }
+  .brand>span:last-child span{
+    font-size:10px;
+  }
+  h1{
+    font-size:29px;
+    letter-spacing:-.6px;
+  }
+  .intro p{
+    font-size:13.5px;
+  }
+  .section-top h2{
+    font-size:20px;
+  }
+  .tool-card h3{
+    font-size:13.5px;
+  }
+  .tool-card p{
+    font-size:11.5px;
+  }
+  .workspace-header h2{
+    font-size:17px;
+  }
+  .dropzone h3{
+    font-size:18px;
+  }
+}
