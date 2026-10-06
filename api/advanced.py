@@ -293,6 +293,73 @@ class handler(BaseHTTPRequestHandler):
                         pass
                     return self.respond(502,{'error':'فشل التدقيق النهائي؛ لم يتم اعتماد النقل ولم تُحسب المحاولة.'})
 
+                # مرور ثالث انتقائي: لا نضيف تكلفة/زمن إلا عند وجود اختلاف أو ثقة منخفضة.
+                first_fields=parsed.get('fields',[]) if isinstance(parsed,dict) and isinstance(parsed.get('fields',[]),list) else []
+                second_fields=verified.get('fields',[]) if isinstance(verified,dict) and isinstance(verified.get('fields',[]),list) else []
+                first_map={}
+                for item in first_fields:
+                    if not isinstance(item,dict):
+                        continue
+                    key=' '.join(str(item.get('anchor') or item.get('label') or '').casefold().split())
+                    if key:
+                        first_map[key]=item
+
+                risky=[]
+                for item in second_fields:
+                    if not isinstance(item,dict):
+                        continue
+                    label=str(item.get('label','')).strip()
+                    anchor=str(item.get('anchor') or label).strip()
+                    key=' '.join(anchor.casefold().split())
+                    value=str(item.get('value','')).strip()
+                    try: conf=float(item.get('confidence',0) or 0)
+                    except Exception: conf=0
+                    old=first_map.get(key)
+                    changed=bool(old) and str(old.get('value','')).strip()!=value
+                    old_had=bool(old) and bool(str(old.get('value','')).strip())
+                    if conf < 0.90 or changed or (not value and old_had):
+                        risky.append({
+                            'label':label[:180],
+                            'anchor':anchor[:220],
+                            'current_value':value[:1600],
+                            'confidence':max(0,min(1,conf)),
+                            'reason':'changed' if changed else ('blank_after_review' if (not value and old_had) else 'low_confidence')
+                        })
+
+                third_pass_used=False
+                third_pass_warning=''
+                if risky:
+                    arbiter_prompt='''أنت المراجع الثالث الحاسم لتعبئة نموذج. لديك نتيجة مراجعة ثانية وخانات حساسة فقط. أعد تقييم الملف من المصدر والنموذج، وخصوصًا الخانات المذكورة في RISKY. لا تغيّر الخانات عالية الثقة بلا سبب صريح. ممنوع التخمين. القيمة لا تعتمد إلا إذا وجدت حرفيًا أو بدليل مباشر في المصدر. إذا لم يوجد دليل اترك value فارغًا. حافظ على anchor مطابقًا لخانة النموذج. أعد القائمة الكاملة النهائية fields وليس الخانات الحساسة فقط، مع coverage. JSON فقط:
+{"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
+'''
+                    arbiter_user='=== المصدر ===\n'+source_text+'\n\n=== النموذج ===\n'+target_text+'\n\n=== نتيجة المراجع الثاني ===\n'+json.dumps(verified,ensure_ascii=False)+'\n\n=== RISKY ===\n'+json.dumps(risky[:40],ensure_ascii=False)
+                    arbiter_request={
+                        'model':model,
+                        'max_tokens':6500,
+                        'messages':[
+                            {'role':'system','content':arbiter_prompt},
+                            {'role':'user','content':arbiter_user}
+                        ]
+                    }
+                    arbiter_req=Request(
+                        base+'/chat/completions',
+                        data=json.dumps(arbiter_request).encode(),
+                        headers={'Content-Type':'application/json','Authorization':'Bearer '+key}
+                    )
+                    try:
+                        with urlopen(arbiter_req,timeout=55) as response:
+                            arbiter_result=json.load(response)
+                        arbiter_raw=arbiter_result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
+                        astart=arbiter_raw.find('{')
+                        aend=arbiter_raw.rfind('}')
+                        arbitrated=json.loads(arbiter_raw[astart:aend+1] if astart>=0 and aend>astart else arbiter_raw)
+                        if isinstance(arbitrated,dict) and isinstance(arbitrated.get('fields'),list) and arbitrated.get('fields'):
+                            verified=arbitrated
+                            third_pass_used=True
+                    except Exception:
+                        # المراجع الثاني ما زال صالحًا؛ لا نفشل العملية كلها بسبب المرور الإضافي.
+                        third_pass_warning='تعذر المرور الثالث؛ تم الاعتماد على التدقيق المستقل الثاني مع فحص الناتج محليًا.'
+
                 coverage=verified.get('coverage',{}) if isinstance(verified,dict) else {}
                 missed=coverage.get('missed_relevant_facts',[]) if isinstance(coverage,dict) else []
                 if not isinstance(missed,list):
@@ -342,7 +409,19 @@ class handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                     return self.respond(400,{'error':'لم أجد خانات واضحة قابلة للتعبئة.'})
-                return self.respond(200,{'fields':fields,'coverage':coverage,'notes':parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else [],'credits':credits,'trial':trial_mode,'filePack':pack_mode})
+                response_notes=parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else []
+                if third_pass_warning:
+                    response_notes.append(third_pass_warning)
+                return self.respond(200,{
+                    'fields':fields,
+                    'coverage':coverage,
+                    'notes':response_notes,
+                    'credits':credits,
+                    'trial':trial_mode,
+                    'filePack':pack_mode,
+                    'reviewPasses':3 if third_pass_used else 2,
+                    'reevaluatedFields':len(risky)
+                })
 
             if action in ('summarize','translate'):
                 if not pack_mode:
