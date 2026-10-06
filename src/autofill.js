@@ -15,20 +15,46 @@ const X=n=>(n.split('.').pop()||'').toLowerCase();
 let objectUrls=[];
 const revoke=()=>{objectUrls.forEach(URL.revokeObjectURL);objectUrls=[]};
 
-async function pdfText(file){
+async function pdfText(file,setStatus=()=>{}){
   const d=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
-  const pages=[];
+  const pages=[];let worker=null;
   try{
     for(let i=1;i<=d.numPages;i++){
-      const c=await(await d.getPage(i)).getTextContent();
-      pages.push((c.items||[]).map(x=>x.str||'').join(' ').replace(/\s+/g,' ').trim());
+      const page=await d.getPage(i);
+      const tc=await page.getTextContent();
+      let text=(tc.items||[]).map(x=>x.str||'').join(' ').replace(/\s+/g,' ').trim();
+      const meaningful=auditToken(text);
+      if(meaningful.length<8){
+        setStatus('OCR للصفحة '+i+' من '+d.numPages+'…');
+        if(!worker){
+          const {createWorker}=await import('tesseract.js');
+          worker=await createWorker('ara+eng',1,{workerPath:'/ocr/worker.min.js',corePath:'/ocr/core',langPath:'/ocr/lang',logger:m=>{if(m.status==='recognizing text')setStatus('OCR صفحة '+i+' · '+Math.round((m.progress||0)*100)+'%')}});
+        }
+        const viewport=page.getViewport({scale:2});
+        const canvas=document.createElement('canvas');
+        canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+        await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+        text=String((await worker.recognize(canvas)).data.text||'').replace(/\s+/g,' ').trim();
+        canvas.width=1;canvas.height=1;
+      }
+      pages.push(text);
     }
-  }finally{await d.destroy()}
+  }finally{
+    if(worker)await worker.terminate();
+    await d.destroy();
+  }
   return pages.map((p,i)=>'[صفحة '+(i+1)+']\n'+p).join('\n\n');
 }
 async function docxText(file){
-  const m=(await import('mammoth')).default||await import('mammoth');
-  return String((await m.extractRawText({arrayBuffer:await file.arrayBuffer()})).value||'');
+  const z=await JSZip.loadAsync(await file.arrayBuffer());
+  const names=Object.keys(z.files).filter(n=>/^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/.test(n)).sort((a,b)=>a.includes('document.xml')?-1:b.includes('document.xml')?1:a.localeCompare(b));
+  const out=[];
+  for(const name of names){
+    const xml=await z.file(name).async('text');
+    const text=visible(xml);
+    if(text)out.push('['+name.replace(/^word\//,'')+']\n'+text);
+  }
+  return out.join('\n\n');
 }
 async function officeText(file){
   const e=X(file.name);
@@ -59,7 +85,7 @@ async function imageText(file,setStatus){
 async function readSource(file,setStatus){
   if(file.size>100*1024*1024)throw Error('الحد الحالي 100 MB.');
   const e=X(file.name);
-  if(e==='pdf')return pdfText(file);
+  if(e==='pdf')return pdfText(file,setStatus);
   if(e==='docx')return docxText(file);
   if(['xlsx','xls','csv','pptx'].includes(e))return officeText(file);
   if(['png','jpg','jpeg','webp'].includes(e))return imageText(file,setStatus);
@@ -458,21 +484,72 @@ async function fillDocx(file,fields){
 }
 
 async function fillPdf(file,fields){
-  const p=await PDFDocument.load(await file.arrayBuffer()),form=p.getForm(),list=form.getFields(),placements=[];
+  const p=await PDFDocument.load(await file.arrayBuffer()),form=p.getForm(),list=form.getFields(),placements=[],used=new Set();
   for(const f of fields){
     if(!f.enabled||!f.value.trim())continue;
     const aliases=[N(f.anchor),N(f.label)].filter(Boolean);
-    const t=list.find(x=>aliases.some(a=>N(x.getName()).includes(a)||a.includes(N(x.getName()))));
-    if(!t){placements.push({label:f.label,where:'لم نجد حقل PDF مطابق'});continue}
+    const ranked=list.filter(x=>!used.has(x.getName())).map(x=>{
+      const name=N(x.getName());
+      let score=0;
+      for(const a of aliases){
+        if(name===a)score=Math.max(score,200);
+        else if(name.startsWith(a)||name.endsWith(a))score=Math.max(score,150);
+        else if(name.includes(a)||a.includes(name))score=Math.max(score,110);
+      }
+      return {field:x,score};
+    }).sort((a,b)=>b.score-a.score);
+    const choice=ranked[0];
+    if(!choice||choice.score<110){placements.push({label:f.label,where:'لم نجد حقل PDF مطابق وآمن'});continue}
+    const t=choice.field;
     try{
       if(typeof t.setText==='function')t.setText(f.value);
       else if(typeof t.check==='function'){/^(1|yes|true|نعم)$/i.test(f.value)?t.check():t.uncheck?.()}
       else if(typeof t.select==='function')t.select(f.value);
-      placements.push({label:f.label,where:'حقل PDF: '+t.getName()});
+      else throw Error('unsupported');
+      used.add(t.getName());
+      placements.push({label:f.label,where:'حقل PDF: '+t.getName(),confidence:choice.score>=200?100:92});
     }catch{placements.push({label:f.label,where:'تعذر تعبئة '+t.getName()})}
   }
   try{form.updateFieldAppearances()}catch{}
   return {blob:new Blob([await p.save()],{type:'application/pdf'}),placements:placements};
+}
+async function validatePdfOutput(blob,fields,placements=[]){
+  const active=fields.filter(f=>f.enabled&&String(f.value||'').trim());
+  const p=await PDFDocument.load(await blob.arrayBuffer()),form=p.getForm(),list=form.getFields();
+  const missing=[];
+  for(const f of active){
+    const place=placements.find(x=>x.label===f.label);
+    const fieldName=String(place?.where||'').startsWith('حقل PDF: ')?String(place.where).slice('حقل PDF: '.length):'';
+    const t=list.find(x=>x.getName()===fieldName);
+    if(!t){missing.push(f.label);continue}
+    try{
+      if(typeof t.getText==='function'){
+        if(String(t.getText()||'')!==String(f.value))missing.push(f.label);
+      }else if(typeof t.isChecked==='function'){
+        const expected=/^(1|yes|true|نعم)$/i.test(f.value);
+        if(Boolean(t.isChecked())!==expected)missing.push(f.label);
+      }else if(typeof t.getSelected==='function'){
+        const selected=t.getSelected();
+        const vals=Array.isArray(selected)?selected:[selected];
+        if(!vals.map(String).includes(String(f.value)))missing.push(f.label);
+      }
+    }catch{missing.push(f.label)}
+  }
+  return {ok:missing.length===0,missing};
+}
+function validateTextOutput(text,template,fields){
+  const groups=new Map();
+  fields.filter(f=>f.enabled&&String(f.value||'').trim()).forEach(f=>{
+    const key=auditToken(f.value);if(!key)return;
+    if(!groups.has(key))groups.set(key,{value:f.value,expected:0,fields:[]});
+    const g=groups.get(key);g.expected++;g.fields.push(f.label);
+  });
+  const missing=[];
+  for(const g of groups.values()){
+    const added=Math.max(0,countToken(text,g.value)-countToken(template,g.value));
+    if(added<g.expected)missing.push(...g.fields);
+  }
+  return {ok:missing.length===0,missing};
 }
 function fillText(template,fields){
   let out=template;const placements=[];
@@ -626,6 +703,10 @@ export function openAutofill(ctx){
       const names=failed.map(x=>x.label).filter(Boolean).join('، ');
       throw Error('تدقيق الناتج أوقف الملف لأن بعض القيم لم تُكتب فعليًا.'+(names?' الخانات: '+names:''));
     }
+    const finalAudit=target.kind==='pdf'
+      ?await validatePdfOutput(out.blob,fields,out.placements||[])
+      :validateTextOutput(out.text||'',target.text||'',fields);
+    if(!finalAudit.ok)throw Error('التدقيق النهائي وجد قيمة غير مطابقة بعد الكتابة: '+finalAudit.missing.join('، '));
     return out;
   }
   function renderAudit(){
