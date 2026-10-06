@@ -1145,3 +1145,204 @@ h1{
   .tool-card{border-radius:4px}
   .tool-icon{width:40px;height:40px}
 }
+
+
+/* 2026-10 navy auth identity */
+:root{
+  --navy:#14213d;
+  --navy-2:#20345f;
+  --coral:#e24a3b;
+  --gold:#d5a63a;
+  --gold-soft:#fbf6e7;
+}
+.brand>span:last-child span{color:var(--coral)}
+header.header{border-bottom-color:#e1e4ea}
+.pricing-button{
+  border-color:#cfd4dd;
+  color:var(--navy);
+}
+.pricing-button:hover{border-color:#9ca8bb;color:#0f1b34}
+.account-button{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:38px;
+  max-width:230px;
+  padding:8px 12px;
+  border:1px solid #cfd4dd;
+  background:#fff;
+  color:var(--navy);
+  border-radius:5px;
+  font-size:13px;
+  font-weight:650;
+  overflow:hidden;
+}
+.account-button span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.account-button svg{width:17px;height:17px;color:var(--coral)}
+.account-button:hover{background:#f7f8fb;border-color:#aeb8c7}
+.nav-item.selected{
+  background:#f0f3f8;
+  color:var(--navy);
+}
+.nav-item.selected svg{color:var(--coral)}
+.count{background:#e9edf4;color:#4f5f77}
+.search:focus-within{
+  border-color:#9aa9bf;
+  box-shadow:0 0 0 3px rgba(20,33,61,.07);
+}
+h1{color:var(--navy)}
+.section-top h2{color:var(--navy)}
+.tool-card:hover{border-color:#aeb8c7}
+.tool-card:hover .tool-icon{color:var(--navy)}
+.tool-badge{
+  color:#7a6429;
+  background:var(--gold-soft);
+  border-color:#e8d9a8;
+}
+.ai-badge{
+  color:#fff;
+  background:var(--navy);
+  border-color:var(--navy);
+}
+.primary{
+  background:var(--navy);
+}
+.primary:hover{background:#0e1930}
+.secondary{
+  color:var(--navy);
+  border-color:#cfd4dd;
+}
+.text-button{color:var(--navy)}
+.upload-icon,.success-icon{
+  color:var(--coral);
+  background:#f7eded;
+}
+.dropzone:hover,.dropzone.dragover{
+  border-color:#9aa9bf;
+  background:#f9fafc;
+}
+.options h3 svg{color:var(--coral)}
+.field input:focus,.field select:focus,.field textarea:focus{
+  border-color:#9aa9bf;
+  box-shadow:0 0 0 3px rgba(20,33,61,.06);
+}
+.file-symbol{color:var(--coral)}
+progress{accent-color:var(--navy)}
+.plan-card.recommended{border-color:var(--navy)}
+.membership-status{
+  background:#eef2f8;
+  color:var(--navy);
+}
+.pro-options{
+  border-color:#c9d2e0;
+  background:#f8f9fb;
+}
+.auth-shell{display:grid;gap:16px}
+.google-button{
+  width:100%;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  border:1px solid #cfd4dd;
+  border-radius:5px;
+  background:#fff;
+  color:#30333a;
+  font-size:14px;
+  font-weight:650;
+}
+.google-button:hover{background:#f7f8fa;border-color:#aeb8c7}
+.google-mark{
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+  border:1px solid #d9dde4;
+  border-radius:50%;
+  font:bold 14px Arial,sans-serif;
+  color:#4285f4;
+}
+.auth-divider{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:#999ca4;
+  font-size:12px;
+}
+.auth-divider::before,.auth-divider::after{
+  content:"";
+  height:1px;
+  flex:1;
+  background:#e4e5e8;
+}
+.auth-form{display:grid;gap:12px}
+.auth-form label{
+  display:grid;
+  gap:6px;
+  font-size:13px;
+  color:#4f5158;
+}
+.auth-form input{
+  width:100%;
+  min-height:44px;
+  border:1px solid #d3d6dc;
+  border-radius:5px;
+  padding:9px 11px;
+  color:#272a30;
+  background:#fff;
+}
+.auth-form input:focus{
+  outline:none;
+  border-color:#9aa9bf;
+  box-shadow:0 0 0 3px rgba(20,33,61,.06);
+}
+.auth-wide{width:100%;min-height:46px}
+.auth-message{
+  min-height:20px;
+  margin:0!important;
+  font-size:12px!important;
+  color:#8a4a40!important;
+}
+.account-summary{
+  display:flex;
+  align-items:center;
+  gap:13px;
+  padding:14px;
+  margin-bottom:16px;
+  border:1px solid #e1e4e9;
+  border-radius:6px;
+  background:#f8f9fb;
+}
+.account-summary p{margin:2px 0 0!important;font-size:12px!important}
+.account-avatar{
+  width:42px;
+  height:42px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:var(--navy);
+  color:#fff;
+}
+.account-avatar svg{width:21px;height:21px}
+.dark .account-button,.dark .google-button,.dark .auth-form input{
+  background:#222225;
+  color:#f3f3f4;
+  border-color:#44464e;
+}
+.dark .account-summary{background:#292a2e;border-color:#414249}
+@media(max-width:700px){
+  .header-actions{gap:5px}
+  .account-button{
+    max-width:42px;
+    width:42px;
+    padding:8px;
+    justify-content:center;
+  }
+  .account-button span{display:none}
+  .pricing-button{max-width:100px}
+}
