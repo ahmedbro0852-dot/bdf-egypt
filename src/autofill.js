@@ -74,6 +74,13 @@ async function docxStructure(file){
     const xml=await z.file(name).async('text');
     const title=name.includes('header')?'هيدر':name.includes('footer')?'فوتر':'المستند';
     out.push('=== '+title+' ===');
+    const controls=xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[];
+    controls.forEach((block,ci)=>{
+      const alias=(block.match(/<w:alias[^>]*w:val="([^"]+)"/i)||[])[1]||'';
+      const tag=(block.match(/<w:tag[^>]*w:val="([^"]+)"/i)||[])[1]||'';
+      const text=visible(block);
+      if(alias||tag||text)out.push('[حقل Word '+(ci+1)+'] الاسم: '+(alias||tag||'بدون اسم')+(tag&&tag!==alias?' | الوسم: '+tag:'')+(text?' | القيمة الحالية: '+text:''));
+    });
     const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
     rows.forEach((row,ri)=>{
       const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
@@ -207,6 +214,7 @@ function replaceTextPreserveStyle(container,value,fallbackPr=''){
 function cellCandidateScore(cell,distance){
   const txt=visible(cell);
   let score=0;
+  if(/<w:vMerge(?:\s*\/|[^>]*w:val="continue"[^>]*\/)>/i.test(cell))score-=120;
   if(!txt)score+=90;
   else if(placeholder(txt))score+=80;
   else if(txt.length<=2)score+=25;
@@ -249,6 +257,32 @@ function writeIntoParagraph(p,value){
   const pr=visiblePr(base,base);
   return {xml:p.replace('</w:p>',run(' '+value,pr)+'</w:p>'),pr,method:'إضافة القيمة بعد اسم الحقل بتنسيق مرئي آمن'};
 }
+function contentControlMeta(block){
+  return {
+    alias:(block.match(/<w:alias[^>]*w:val="([^"]+)"/i)||[])[1]||'',
+    tag:(block.match(/<w:tag[^>]*w:val="([^"]+)"/i)||[])[1]||'',
+    text:visible(block)
+  };
+}
+function writeIntoContentControl(block,value){
+  const content=(block.match(/<w:sdtContent>[\s\S]*?<\/w:sdtContent>/)||[])[0]||'';
+  if(!content)return null;
+  const runs=content.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)||[];
+  const firstRun=runs[0]||'';
+  const pr=visiblePr(rPr(firstRun),rPr(block));
+  let newContent='';
+  if(firstRun){
+    const replacement=run(value,pr);
+    newContent=content.replace(firstRun,replacement);
+    const leftovers=(newContent.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)||[]).slice(1);
+    for(const r of leftovers){
+      if(visible(r))newContent=newContent.replace(r,r.replace(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/g,'<w:t></w:t>'));
+    }
+  }else{
+    newContent=content.replace('</w:sdtContent>','<w:p>'+run(value,pr)+'</w:p></w:sdtContent>');
+  }
+  return {xml:block.replace(content,newContent),pr,method:'تعبئة حقل Word المخصص مباشرة'};
+}
 function locationPartName(name){
   if(name.includes('header'))return 'الهيدر';
   if(name.includes('footer'))return 'الفوتر';
@@ -259,6 +293,7 @@ async function fillDocx(file,fields){
   const partNames=Object.keys(z.files).filter(n=>/^word\/(document|header\d+|footer\d+)\.xml$/.test(n)).sort();
   if(!partNames.includes('word/document.xml'))throw Error('تعذر قراءة Word.');
   const placements=[];
+  const usedLocations=new Set();
 
   for(const f of fields){
     if(!f.enabled||!f.value.trim())continue;
@@ -267,9 +302,19 @@ async function fillDocx(file,fields){
 
     for(const partName of partNames){
       const entry=z.file(partName);
-      let xml=await entry.async('text');
-      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+      const xml=await entry.async('text');
 
+      const controls=xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[];
+      controls.forEach((block,index)=>{
+        const key=partName+':sdt:'+index;
+        if(usedLocations.has(key))return;
+        const meta=contentControlMeta(block);
+        const score=Math.max(matchScore(meta.alias,aliases)+35,matchScore(meta.tag,aliases)+30,matchScore(meta.text,aliases));
+        if(score<95)return;
+        if(!bestMatch||score>bestMatch.total)bestMatch={kind:'sdt',partName,index,total:score};
+      });
+
+      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
       rows.forEach((row,rowIndex)=>{
         const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
         cells.forEach((cell,cellIndex)=>{
@@ -277,44 +322,65 @@ async function fillDocx(file,fields){
           if(score<=0)return;
           const target=chooseTargetCell(cells,cellIndex);
           if(!target)return;
+          const key=partName+':table:'+rowIndex+':'+target.index;
+          if(usedLocations.has(key))return;
           const total=score+target.score;
           if(!bestMatch||total>bestMatch.total){
-            bestMatch={kind:'table',partName,row,rowIndex,cells,labelIndex:cellIndex,targetIndex:target.index,total};
+            bestMatch={kind:'table',partName,rowIndex,labelIndex:cellIndex,targetIndex:target.index,total,key};
           }
         });
       });
 
       const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
       paras.forEach((p,pIndex)=>{
+        const key=partName+':paragraph:'+pIndex;
+        if(usedLocations.has(key))return;
         const score=matchScore(visible(p),aliases);
-        if(score<95)return;
-        const total=score-18;
+        if(score<105)return;
+        const total=score-22;
         if(!bestMatch||total>bestMatch.total){
-          bestMatch={kind:'paragraph',partName,p,pIndex,total};
+          bestMatch={kind:'paragraph',partName,pIndex,total,key};
         }
       });
     }
 
     if(!bestMatch){
-      placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا',confidence:0,method:'تم منع الكتابة العشوائية'});
+      placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا أو المكان مستخدم لحقل آخر',confidence:0,method:'تم منع الكتابة العشوائية أو المكررة'});
       continue;
     }
 
     const entry=z.file(bestMatch.partName);
     let xml=await entry.async('text');
 
-    if(bestMatch.kind==='table'){
+    if(bestMatch.kind==='sdt'){
+      const controls=xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[];
+      const block=controls[bestMatch.index];
+      const written=block?writeIntoContentControl(block,f.value):null;
+      if(!written){
+        placements.push({label:f.label,where:'حقل Word مخصص لكن تعذر الكتابة داخله',confidence:0,method:'لم يتم تعديل الملف'});
+        continue;
+      }
+      xml=xml.replace(block,written.xml);
+      z.file(bestMatch.partName,xml);
+      const key=bestMatch.partName+':sdt:'+bestMatch.index;
+      usedLocations.add(key);
+      placements.push(Object.assign({
+        label:f.label,
+        where:locationPartName(bestMatch.partName)+' · حقل Word مخصص',
+        confidence:Math.min(99,Math.round(bestMatch.total/1.5)),
+        method:written.method
+      },styleMeta(written.pr)));
+    }else if(bestMatch.kind==='table'){
       const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
       const row=rows[bestMatch.rowIndex];
       const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
       const labelCell=cells[bestMatch.labelIndex];
       const targetCell=cells[bestMatch.targetIndex];
-
       const written=writeIntoCell(targetCell,labelCell,f.value);
       const newRow=row.replace(targetCell,written.xml);
       xml=xml.replace(row,newRow);
       z.file(bestMatch.partName,xml);
-
+      usedLocations.add(bestMatch.key);
       placements.push(Object.assign({
         label:f.label,
         where:locationPartName(bestMatch.partName)+' · جدول · الخلية المقابلة مباشرة',
@@ -327,7 +393,7 @@ async function fillDocx(file,fields){
       const written=writeIntoParagraph(p,f.value);
       xml=xml.replace(p,written.xml);
       z.file(bestMatch.partName,xml);
-
+      usedLocations.add(bestMatch.key);
       placements.push(Object.assign({
         label:f.label,
         where:locationPartName(bestMatch.partName)+' · نفس السطر بعد اسم الحقل',
