@@ -520,7 +520,7 @@ export function openAutofill(ctx){
       const aiResult=await askAI(source,target.text,trialCode);
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       filled=await build();placements=filled.placements||[];if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
-      status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من 3 تجارب.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
+      status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
   };
   q('#af-preview').onclick=async()=>{
