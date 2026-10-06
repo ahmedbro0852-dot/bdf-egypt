@@ -1501,3 +1501,122 @@ progress{accent-color:var(--navy)}
     font-size:9px;
   }
 }
+
+
+/* 2026-10 free pro tier system */
+.tool-badge.free-access{
+  color:#59606d;
+  background:#f4f5f7;
+  border-color:#dcdfe5;
+}
+.tool-badge.pro-access{
+  color:#fff;
+  background:#14213d;
+  border-color:#14213d;
+}
+.workspace-title-row{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  flex-wrap:wrap;
+}
+.workspace-tier{
+  display:inline-flex;
+  align-items:center;
+  min-height:21px;
+  padding:2px 7px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.3px;
+}
+.workspace-tier.free{
+  color:#626772;
+  background:#f0f1f3;
+  border:1px solid #dde0e5;
+}
+.workspace-tier.pro{
+  color:#fff;
+  background:#14213d;
+  border:1px solid #14213d;
+}
+.tier-summary{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  margin:18px 0 24px;
+}
+.tier-card{
+  padding:18px;
+  border:1px solid #dfe3ea;
+  border-radius:8px;
+  background:#fff;
+}
+.tier-card h3{
+  margin:4px 0 6px;
+  font-size:23px;
+  color:#14213d;
+}
+.tier-card p{
+  margin:0 0 10px!important;
+  color:#6f737c;
+}
+.tier-card ul{
+  margin:0;
+  padding:0 18px 0 0;
+  display:grid;
+  gap:7px;
+  font-size:12.5px;
+  color:#4f535c;
+}
+.tier-kicker{
+  display:inline-flex;
+  padding:3px 7px;
+  border-radius:4px;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.6px;
+}
+.free-tier .tier-kicker{
+  background:#f0f1f3;
+  color:#5d626c;
+}
+.pro-tier{
+  border-color:#aeb9cb;
+  background:#f8faff;
+}
+.pro-tier .tier-kicker{
+  background:#14213d;
+  color:#fff;
+}
+.pricing-section-title{
+  margin:4px 0 8px;
+  font-size:16px;
+  color:#14213d;
+}
+.pricing-note{
+  margin-top:14px!important;
+  padding:10px 12px;
+  border-top:1px solid #e5e7eb;
+  color:#777b84!important;
+  font-size:12px!important;
+}
+.dark .tier-card{
+  background:#222225;
+  border-color:#41434a;
+}
+.dark .pro-tier{
+  background:#1b2436;
+  border-color:#4d6287;
+}
+.dark .tier-card h3,.dark .pricing-section-title{color:#f3f5f8}
+.dark .tier-card p,.dark .tier-card ul{color:#c3c6cd}
+.dark .tool-badge.free-access,.dark .workspace-tier.free{
+  background:#303238;
+  color:#d1d3d8;
+  border-color:#474951;
+}
+@media(max-width:700px){
+  .tier-summary{grid-template-columns:1fr}
+  .tier-card{padding:14px}
+}
