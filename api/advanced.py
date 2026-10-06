@@ -39,6 +39,36 @@ def credit_call(payload, consume=0):
             raise ValueError('استهلكت كريدت الذكاء الاصطناعي لهذا الشهر. يتجدد الرصيد تلقائيًا الشهر القادم.')
         raise RuntimeError('credit service unavailable')
 
+def file_credit_call(payload, consume=0):
+    url=os.getenv('SUPABASE_URL','').rstrip('/')
+    key=os.getenv('SUPABASE_ANON_KEY','')
+    secret=os.getenv('BDF_CREDIT_RPC_SECRET','')
+    total=int(payload.get('files',0) or 0)
+    if total not in (100,500,1000):
+        raise ValueError('باقة ملفات AI غير صحيحة.')
+    if not url or not key or not secret:
+        raise RuntimeError('file credit service unavailable')
+    body={
+        'p_license_id':payload.get('id',''),
+        'p_total_limit':total,
+        'p_server_secret':secret,
+        'p_consume':consume
+    }
+    req=Request(
+        url+'/rest/v1/rpc/bdf_ai_file_pack_status',
+        data=json.dumps(body).encode(),
+        headers={'Content-Type':'application/json','apikey':key,'Authorization':'Bearer '+key}
+    )
+    try:
+        with urlopen(req,timeout=15) as response:
+            return json.load(response)
+    except HTTPError as err:
+        try: detail=err.read().decode('utf-8','ignore')
+        except Exception: detail=''
+        if 'file credit limit exceeded' in detail:
+            raise ValueError('انتهى رصيد ملفات الذكاء الاصطناعي. اشحن باقة جديدة.')
+        raise RuntimeError('file credit service unavailable')
+
 def trial_call(code, consume=0):
     url=os.getenv('SUPABASE_URL','').rstrip('/')
     key=os.getenv('SUPABASE_ANON_KEY','')
@@ -107,17 +137,20 @@ class handler(BaseHTTPRequestHandler):
                     license_payload=verify_license(self.headers.get('Authorization','').removeprefix('Bearer '))
                 except ValueError as err:
                     return self.respond(403,{'error':str(err)})
+            pack_mode=(not trial_mode and license_payload.get('kind')=='ai_files')
 
             if action=='usage':
                 try:
-                    credits=credit_call(license_payload,0)
-                    return self.respond(200,{'credits':credits})
+                    credits=file_credit_call(license_payload,0) if pack_mode else credit_call(license_payload,0)
+                    return self.respond(200,{'credits':credits,'filePack':pack_mode})
                 except ValueError as err:
                     return self.respond(429,{'error':str(err)})
                 except Exception:
                     return self.respond(503,{'error':'تعذر قراءة رصيد الكريدت الآن.'})
 
             if action in ('pdfa','searchable'):
+                if pack_mode:
+                    return self.respond(403,{'error':'رصيد ملفات AI مخصص لأداة تعبئة ونقل البيانات فقط.'})
                 url=os.getenv('CONVERSION_SERVICE_URL','').rstrip('/')
                 token=os.getenv('CONVERSION_SERVICE_TOKEN','')
                 if not url or not token:
@@ -146,7 +179,7 @@ class handler(BaseHTTPRequestHandler):
                 if not isinstance(target_text,str) or not 0<len(target_text)<=40000:
                     return self.respond(400,{'error':'النموذج كبير جدًا أو فارغ.'})
                 try:
-                    credits=trial_call(trial_code,1) if trial_mode else credit_call(license_payload,1)
+                    credits=trial_call(trial_code,1) if trial_mode else (file_credit_call(license_payload,1) if pack_mode else credit_call(license_payload,1))
                 except ValueError as err:
                     return self.respond(429,{'error':str(err)})
                 except Exception:
@@ -155,7 +188,7 @@ class handler(BaseHTTPRequestHandler):
                 base=os.getenv('AI_BASE_URL','https://api.openai.com/v1').rstrip('/')
                 if not base.startswith('https://'):
                     try:
-                        trial_call(trial_code,-1) if trial_mode else credit_call(license_payload,-1)
+                        trial_call(trial_code,-1) if trial_mode else (file_credit_call(license_payload,-1) if pack_mode else credit_call(license_payload,-1))
                     except Exception:
                         pass
                     return self.respond(503,{'error':'يجب استخدام مزود آمن عبر HTTPS.'})
@@ -180,7 +213,7 @@ class handler(BaseHTTPRequestHandler):
                         result=json.load(response)
                 except Exception:
                     try:
-                        trial_call(trial_code,-1) if trial_mode else credit_call(license_payload,-1)
+                        trial_call(trial_code,-1) if trial_mode else (file_credit_call(license_payload,-1) if pack_mode else credit_call(license_payload,-1))
                     except Exception:
                         pass
                     raise
@@ -192,7 +225,7 @@ class handler(BaseHTTPRequestHandler):
                     parsed=json.loads(raw[start:end+1] if start>=0 and end>start else raw)
                 except Exception:
                     try:
-                        trial_call(trial_code,-1) if trial_mode else credit_call(license_payload,-1)
+                        trial_call(trial_code,-1) if trial_mode else (file_credit_call(license_payload,-1) if pack_mode else credit_call(license_payload,-1))
                     except Exception:
                         pass
                     return self.respond(502,{'error':'تم تحليل الملفين لكن النتيجة غير صالحة. أعد المحاولة.'})
@@ -215,13 +248,15 @@ class handler(BaseHTTPRequestHandler):
                     })
                 if not fields:
                     try:
-                        trial_call(trial_code,-1) if trial_mode else credit_call(license_payload,-1)
+                        trial_call(trial_code,-1) if trial_mode else (file_credit_call(license_payload,-1) if pack_mode else credit_call(license_payload,-1))
                     except Exception:
                         pass
                     return self.respond(400,{'error':'لم أجد خانات واضحة قابلة للتعبئة.'})
-                return self.respond(200,{'fields':fields,'notes':parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else [],'credits':credits,'trial':trial_mode})
+                return self.respond(200,{'fields':fields,'notes':parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else [],'credits':credits,'trial':trial_mode,'filePack':pack_mode})
 
             if action in ('summarize','translate'):
+                if pack_mode:
+                    return self.respond(403,{'error':'رصيد ملفات AI مخصص لأداة تعبئة ونقل البيانات فقط.'})
                 key=os.getenv('AI_API_KEY','')
                 model=os.getenv('AI_MODEL','')
                 enabled=os.getenv('AI_ENABLED','0')
