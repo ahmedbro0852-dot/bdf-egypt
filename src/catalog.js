@@ -19,6 +19,7 @@ export const tools=[
 ['watermark','علامة مائية','أضف نصًا عربيًا أو إنجليزيًا على كل صفحة.','edit','Stamp','purple','pdf'],
 ['numbers','ترقيم الصفحات','أضف أرقام الصفحات في المكان اللي تختاره.','edit','ListOrdered','blue','pdf'],
 ['edit','إضافة نص وصورة','أضف ملاحظة أو صورة إلى صفحة محددة.','edit','Pencil','green','pdf'],
+['file-editor','فتح وتعديل ملف','افتح PDF أو Word أو TXT وعدّل المحتوى ثم نزّل نسخة جديدة.','edit','FilePenLine','blue','editor'],
 ['sign','توقيع PDF','ارسم توقيعك وأضفه إلى المستند.','edit','PenLine','purple','pdf'],
 ['crop','قص الهوامش','قلّل الهوامش الظاهرة لكل صفحات المستند.','edit','Crop','amber','pdf'],
 ['redact','حجب معلومات','احذف منطقة حساسة بتحويل الصفحة إلى صورة.','security','ScanLine','coral','pdf'],
