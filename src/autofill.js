@@ -150,7 +150,7 @@ function matchScore(text,aliases){
   return best;
 }
 function replaceTextPreserveStyle(container,value){
-  const runs=container.match(/<w:r[\s\S]*?<\/w:r>/g)||[];
+  const runs=container.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)||[];
   let best=null;
   for(const r of runs){
     const txt=visible(r);
@@ -380,7 +380,9 @@ export function openAutofill(ctx){
     q('#af-fields').innerHTML=fields.map((f,i)=>{
       const p=placements.find(x=>x.label===f.label)||{};
       const style=[p.font?('الخط '+p.font):'',p.size?('الحجم '+p.size+'pt'):'',p.color?('اللون '+p.color):''].filter(Boolean).join(' · ');
-      return '<div class="af-field '+(f.confidence<.65?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><input data-v="'+i+'" value="'+E(f.value)+'" placeholder="غير موجود"><div class="af-meta"><span>'+(f.verified?'✓ مثبت من المصدر':'⚠ يحتاج مراجعة')+' · '+Math.round(f.confidence*100)+'%</span><span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+'</span>'+(style?'<span>'+E(style)+'</span>':'')+'</div></div>';
+      const place=p.confidence?('دقة المكان '+p.confidence+'%'):'';
+      const method=p.method||'';
+      return '<div class="af-field '+(f.confidence<.65?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><input data-v="'+i+'" value="'+E(f.value)+'" placeholder="غير موجود"><div class="af-meta"><span>'+(f.verified?'✓ مثبت من المصدر':'⚠ يحتاج مراجعة')+' · دقة البيانات '+Math.round(f.confidence*100)+'%</span><span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+(place?' · '+E(place):'')+'</span>'+(method?'<span>طريقة الكتابة: '+E(method)+'</span>':'')+(style?'<span>'+E(style)+'</span>':'')+'</div></div>';
     }).join('');
     q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>fields[Number(x.dataset.en)].enabled=x.checked);
     q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;f.enabled=Boolean(x.value.trim())&&f.confidence>=.55});
