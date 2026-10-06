@@ -122,7 +122,7 @@ function verify(fields,source){
 }
 const xEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 const xDec=s=>s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
-const visible=xml=>xDec((xml.match(/<w:t[^>]*>[\s\S]*?<\/w:t>/g)||[]).map(x=>x.replace(/<w:t[^>]*>/,'').replace(/<\/w:t>/,'')).join(' ')).replace(/\s+/g,' ').trim();
+const visible=xml=>xDec((xml.match(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/g)||[]).map(x=>x.replace(/<w:t(?:\s[^>]*)?>/,'').replace(/<\/w:t>/,'')).join(' ')).replace(/\s+/g,' ').trim();
 const rPr=xml=>(xml.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)||[])[0]||'';
 const pPr=xml=>(xml.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)||[])[0]||'';
 const cleanPr=pr=>pr.replace(/<w:b(?:\s*\/>|>[\s\S]*?<\/w:b>)/g,'').replace(/<w:bCs(?:\s*\/>|>[\s\S]*?<\/w:bCs>)/g,'');
