@@ -1368,3 +1368,136 @@ progress{accent-color:var(--navy)}
   background:#fff8f7;
   border-radius:5px;
 }
+
+
+/* 2026-10 service logo system */
+.service-logo{
+  width:54px;
+  height:58px;
+  position:relative;
+  display:flex;
+  align-items:flex-end;
+  justify-content:flex-start;
+  padding:8px 7px;
+  border:1px solid #d9dde5;
+  border-radius:7px;
+  background:#fff;
+  color:#14213d;
+  box-shadow:0 2px 5px rgba(20,33,61,.05);
+  overflow:hidden;
+}
+.service-logo::before{
+  content:"";
+  position:absolute;
+  top:0;
+  right:0;
+  width:16px;
+  height:16px;
+  background:#eef1f6;
+  border-left:1px solid #d9dde5;
+  border-bottom:1px solid #d9dde5;
+  border-bottom-left-radius:5px;
+}
+.service-logo strong{
+  position:relative;
+  z-index:1;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:.25px;
+  font-weight:800;
+}
+.service-logo>span{
+  position:absolute;
+  top:8px;
+  left:7px;
+  width:18px;
+  height:18px;
+  display:grid;
+  place-items:center;
+  color:#e24a3b;
+}
+.service-logo>span svg{
+  width:17px;
+  height:17px;
+}
+.service-logo-ai{
+  background:#14213d;
+  color:#fff;
+  border-color:#14213d;
+}
+.service-logo-ai::before{
+  background:#20345f;
+  border-color:#334a78;
+}
+.service-logo-ai>span{color:#d5a63a}
+.service-logo-ocr,
+.service-logo-scan{
+  background:#fbf6e7;
+  color:#6f5923;
+  border-color:#e6d8a8;
+}
+.service-logo-ocr::before,
+.service-logo-scan::before{
+  background:#f3e7bd;
+  border-color:#dfcc8c;
+}
+.service-logo-ocr>span,
+.service-logo-scan>span{color:#14213d}
+.service-logo-docx,
+.service-logo-xlsx,
+.service-logo-pptx,
+.service-logo-html,
+.service-logo-txt,
+.service-logo-jpg,
+.service-logo-img{
+  background:#f7f8fb;
+  color:#14213d;
+}
+.tool-card .service-logo{
+  margin-bottom:12px;
+}
+.tool-card:hover .service-logo{
+  border-color:#aeb8c7;
+}
+.workspace-header .service-logo{
+  flex:0 0 auto;
+  width:48px;
+  height:50px;
+  margin:0;
+}
+.workspace-header .service-logo strong{
+  font-size:9px;
+}
+.workspace-header .service-logo>span{
+  top:7px;
+  left:6px;
+}
+.dark .service-logo{
+  background:#26272b;
+  color:#f4f4f5;
+  border-color:#41434a;
+  box-shadow:none;
+}
+.dark .service-logo::before{
+  background:#303238;
+  border-color:#41434a;
+}
+.dark .service-logo-ai{
+  background:#192846;
+  border-color:#344a70;
+}
+.dark .service-logo-ocr,
+.dark .service-logo-scan{
+  background:#3b3422;
+  color:#f5e6b3;
+  border-color:#5d5030;
+}
+@media(max-width:700px){
+  .service-logo{
+    width:48px;
+    height:52px;
+  }
+  .service-logo strong{
+    font-size:9px;
+  }
+}
