@@ -4,7 +4,7 @@ import os, json, hmac, hashlib, base64, secrets, time, calendar
 from datetime import datetime, timezone
 
 PLANS = [{'months':1,'price':42},{'months':3,'price':108},{'months':6,'price':196},{'months':12,'price':328}]
-AI_FILE_PLANS = [{'files':1,'price':42},{'files':100,'price':300},{'files':500,'price':1200},{'files':1000,'price':2000}]
+AI_FILE_PLANS = [{'files':100,'price':300},{'files':500,'price':1200},{'files':1000,'price':2000}]
 
 def encode(raw): return base64.urlsafe_b64encode(raw).decode().rstrip('=')
 def verify_license(token):
@@ -17,7 +17,7 @@ def verify_license(token):
         payload=json.loads(base64.urlsafe_b64decode(body+'='*(-len(body)%4)))
         if payload.get('version')!=1: raise ValueError()
         if payload.get('kind')=='ai_files':
-            if payload.get('files') not in (1,100,500,1000): raise ValueError()
+            if payload.get('files') not in (100,500,1000): raise ValueError()
             return payload
         if payload.get('months') not in (1,3,6,12) or payload.get('expires',0)<=time.time(): raise ValueError()
         payload['kind']='pro'
@@ -37,7 +37,7 @@ def issue_license(months,reference):
     return token,payload
 
 def issue_ai_pack(files,reference):
-    if files not in (1,100,500,1000): raise ValueError('باقة ملفات غير صحيحة.')
+    if files not in (100,500,1000): raise ValueError('باقة ملفات غير صحيحة.')
     payload={'version':1,'kind':'ai_files','id':secrets.token_hex(8),'files':files,'issued':int(time.time()),'reference':reference}
     body=encode(json.dumps(payload,separators=(',',':')).encode())
     secret=os.getenv('LICENSE_SIGNING_SECRET','')
