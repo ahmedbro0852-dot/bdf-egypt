@@ -260,7 +260,7 @@ class handler(BaseHTTPRequestHandler):
 - صحح أي label/anchor/value خاطئ أو ناقص في الترشيحات.
 - العناوين والملاحظات والنصوص التوضيحية ليست خانات.
 - وجود خانة بلا معلومة في المصدر لا يُعد نقصًا: اترك value فارغًا.
-- coverage.complete تقيس فقط أنك فحصت كل خانات النموذج الفعلية، وليس أنك نقلت كل معلومة موجودة في المصدر.
+- coverage.complete لا تكون true إلا إذا فُحصت كل خانات النموذج الفعلية، ونُقلت كل معلومة صريحة في المصدر لها خانة مقابلة في النموذج مرة واحدة، ولم يبق أي missed_relevant_facts.
 
 أعد JSON فقط:
 {"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
@@ -304,8 +304,16 @@ class handler(BaseHTTPRequestHandler):
                     'missed_relevant_facts':[str(x)[:400] for x in missed[:30]]
                 }
                 parsed=verified if isinstance(verified,dict) else {}
-                # Coverage is advisory here. The browser validates each selected value against
-                # the source and validates the generated target file before download.
+                # وضع صارم: لو المدقق لم يثبت التغطية الكاملة لا نعتمد الملف ولا نحسب المحاولة.
+                if not coverage['complete'] or coverage['missed_relevant_facts']:
+                    try:
+                        trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
+                    except Exception:
+                        pass
+                    return self.respond(422,{
+                        'error':'التدقيق النهائي لم يثبت نقل كل معلومة لها خانة مقابلة؛ تم إيقاف الملف بدل إخراج نتيجة ناقصة.',
+                        'coverage':coverage
+                    })
                 fields=[]
                 seen_anchors=set()
                 for item in parsed.get('fields',[])[:160]:
