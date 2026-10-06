@@ -3,6 +3,7 @@ const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishabl
 const STORE='bdf:auth-session';
 
 let session=null;
+let authSettings={external:{}};
 
 function save(value){
   session=value||null;
@@ -97,9 +98,10 @@ async function hydrateUser(){
 export async function initAuth(){
   const callback=parseOAuthCallback();
   session=read();
+  try{authSettings=await request('/settings');}catch{authSettings={external:{}};}
   if(session?.expires_at&&session.expires_at<Math.floor(Date.now()/1000)+60)await refresh();
   const user=await hydrateUser();
-  return {user,error:callback?.error||''};
+  return {user,error:callback?.error||'',googleEnabled:!!authSettings?.external?.google};
 }
 export function currentUser(){return session?.user||null;}
 export async function signIn(email,password){
@@ -109,14 +111,17 @@ export async function signIn(email,password){
   return currentUser();
 }
 export async function signUp(email,password){
-  const data=await request('/signup',{method:'POST',body:{email,password}});
+  const redirect=encodeURIComponent(location.origin+'/login');
+  const data=await request('/signup?redirect_to='+redirect,{method:'POST',body:{email,password}});
   if(data.access_token){
     save(normalize(data));
     await hydrateUser();
   }
   return {user:data.user||currentUser(),needsConfirmation:!data.access_token};
 }
-export function signInGoogle(){
+export function googleEnabled(){return !!authSettings?.external?.google;}
+export async function signInGoogle(){
+  if(!googleEnabled())throw new Error('تسجيل الدخول بجوجل غير مفعّل بعد في إعدادات Supabase.');
   const redirect=location.origin+'/login';
   location.href=SUPABASE_URL+'/auth/v1/authorize?provider=google&redirect_to='+encodeURIComponent(redirect);
 }
