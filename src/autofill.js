@@ -5,6 +5,11 @@ import * as XLSX from 'xlsx';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PDFDocument } from 'pdf-lib';
+import mammoth from 'mammoth';
+import DOMPurify from 'dompurify';
+import html2canvas from 'html2canvas';
+import * as DOCX from 'docx';
+import {createWorker} from 'tesseract.js';
 import { hasAiPack, aiPackToken } from './subscription.js';
 import {saveCloudFiles,uploadCloudBlob} from './cloud-files.js';
 
@@ -27,7 +32,6 @@ async function pdfText(file,setStatus=()=>{}){
       if(meaningful.length<8){
         setStatus('OCR للصفحة '+i+' من '+d.numPages+'…');
         if(!worker){
-          const {createWorker}=await import('tesseract.js');
           worker=await createWorker('ara+eng',1,{workerPath:'/ocr/worker.min.js',corePath:'/ocr/core',langPath:'/ocr/lang',logger:m=>{if(m.status==='recognizing text')setStatus('OCR صفحة '+i+' · '+Math.round((m.progress||0)*100)+'%')}});
         }
         const viewport=page.getViewport({scale:2});
@@ -639,14 +643,12 @@ async function validateDocxOutput(blob,fields,originalFile,placements=[]){
   }
 }
 async function previewDocx(blob){
-  const m=(await import('mammoth')).default||await import('mammoth'),D=(await import('dompurify')).default;
-  return D.sanitize((await m.convertToHtml({arrayBuffer:await blob.arrayBuffer()})).value||'',{FORBID_TAGS:['script','iframe','object','embed','form']});
+  return DOMPurify.sanitize((await mammoth.convertToHtml({arrayBuffer:await blob.arrayBuffer()})).value||'',{FORBID_TAGS:['script','iframe','object','embed','form']});
 }
 async function pdfFromHtml(html){
-  const D=(await import('dompurify')).default,h2c=(await import('html2canvas')).default;
-  const h=document.createElement('div');h.className='af-print';h.innerHTML=D.sanitize(html);document.body.append(h);
+  const h=document.createElement('div');h.className='af-print';h.innerHTML=DOMPurify.sanitize(html);document.body.append(h);
   try{
-    const c=await h2c(h,{scale:1.5,backgroundColor:'#fff',logging:false}),pdf=await PDFDocument.create(),sliceH=Math.floor(c.width*842/595);
+    const c=await html2canvas(h,{scale:1.5,backgroundColor:'#fff',logging:false}),pdf=await PDFDocument.create(),sliceH=Math.floor(c.width*842/595);
     for(let y=0;y<c.height;y+=sliceH){
       const s=document.createElement('canvas');s.width=c.width;s.height=Math.min(sliceH,c.height-y);s.getContext('2d').drawImage(c,0,y,c.width,s.height,0,0,c.width,s.height);
       const b=await new Promise(res=>s.toBlob(res,'image/png')),im=await pdf.embedPng(await b.arrayBuffer()),p=pdf.addPage([595,842]),hh=Math.min(842,s.height*595/s.width);
@@ -799,8 +801,8 @@ export function openAutofill(ctx){
       }else if(fmt==='docx'){
         if(filled.kind==='docx')await saveAndDl(filled.blob,b+'.docx');
         else{
-          const D=await import('docx'),doc=new D.Document({sections:[{children:fields.filter(f=>f.enabled).map(f=>new D.Paragraph({children:[new D.TextRun({text:f.label+': ',bold:true}),new D.TextRun(f.value)]}))}]});
-          await saveAndDl(await D.Packer.toBlob(doc),b+'.docx');
+          const doc=new DOCX.Document({sections:[{children:fields.filter(f=>f.enabled).map(f=>new DOCX.Paragraph({children:[new DOCX.TextRun({text:f.label+': ',bold:true}),new DOCX.TextRun(f.value)]}))}]});
+          await saveAndDl(await DOCX.Packer.toBlob(doc),b+'.docx');
         }
       }
       status(filled.kind==='docx'?'تم تجهيز ملف Word والتحقق من وجود البيانات داخله فعليًا.':'تم تجهيز الملف.');
