@@ -65,14 +65,36 @@ async function readSource(file,setStatus){
   if(['txt','md','json'].includes(e))return file.text();
   throw Error('صيغة ملف البيانات غير مدعومة.');
 }
+async function docxStructure(file){
+  const z=await JSZip.loadAsync(await file.arrayBuffer());
+  const parts=Object.keys(z.files).filter(n=>/^word\/(document|header\d+|footer\d+)\.xml$/.test(n)).sort();
+  const out=[];
+  for(const name of parts){
+    const xml=await z.file(name).async('text');
+    const title=name.includes('header')?'هيدر':name.includes('footer')?'فوتر':'المستند';
+    out.push('=== '+title+' ===');
+    const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+    rows.forEach((row,ri)=>{
+      const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
+      const texts=cells.map(c=>visible(c)).filter(Boolean);
+      if(texts.length)out.push('[صف جدول '+(ri+1)+'] '+texts.map((t,i)=>'خلية '+(i+1)+': '+t).join(' | '));
+    });
+    const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+    paras.forEach((p,pi)=>{
+      const t=visible(p);
+      if(t)out.push('[سطر '+(pi+1)+'] '+t);
+    });
+  }
+  return out.join('\n').slice(0,40000);
+}
 async function readTarget(file){
   const e=X(file.name);
-  if(e==='docx')return {kind:'docx',text:await docxText(file)};
+  if(e==='docx')return {kind:'docx',text:await docxStructure(file)};
   if(e==='pdf'){
     const p=await PDFDocument.load(await file.arrayBuffer());
     const fs=p.getForm().getFields();
     if(!fs.length)throw Error('PDF لازم يكون نموذج حقول قابل للتعبئة.');
-    return {kind:'pdf',text:fs.map(f=>'حقل: '+f.getName()).join('\n')};
+    return {kind:'pdf',text:fs.map((f,i)=>'حقل '+(i+1)+': '+f.getName()).join('\n')};
   }
   if(['txt','md'].includes(e))return {kind:'text',text:await file.text()};
   throw Error('النموذج يدعم DOCX أو PDF Form أو TXT/MD.');
@@ -104,50 +126,178 @@ const rPr=xml=>(xml.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)||[])[0]||'';
 const pPr=xml=>(xml.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)||[])[0]||'';
 const cleanPr=pr=>pr.replace(/<w:b(?:\s*\/>|>[\s\S]*?<\/w:b>)/g,'').replace(/<w:bCs(?:\s*\/>|>[\s\S]*?<\/w:bCs>)/g,'');
 function styleMeta(pr){
-  const s=(pr.match(/<w:sz[^>]*w:val="([^"]+)"/)||[])[1],c=(pr.match(/<w:color[^>]*w:val="([^"]+)"/)||[])[1],f=(pr.match(/<w:rFonts[^>]*(?:w:ascii|w:cs|w:hAnsi)="([^"]+)"/)||[])[1];
-  return {size:s?Number(s)/2:null,color:c&&c!=='auto'?'#'+c:null,font:f||null};
+  const sz=(pr.match(/<w:sz[^>]*w:val="([^"]+)"/)||[])[1];
+  const color=(pr.match(/<w:color[^>]*w:val="([^"]+)"/)||[])[1];
+  const font=(pr.match(/<w:rFonts[^>]*(?:w:ascii|w:cs|w:hAnsi)="([^"]+)"/)||[])[1];
+  return {size:sz?Number(sz)/2:null,color:color&&color!=='auto'?'#'+color:null,font:font||null};
 }
 const run=(v,pr)=>'<w:r>'+pr+'<w:t xml:space="preserve">'+xEsc(v)+'</w:t></w:r>';
-const blank=s=>!s||/^[\s._\-–—:：/\\|()\[\]]*$/.test(s);
-
+const blank=s=>!String(s||'').trim()||/^[\s._\-–—…:：/\\|()\[\]{}]+$/.test(String(s||'').trim());
+const placeholder=s=>{
+  const t=N(s);
+  return blank(s)||/^(اكتب|ادخل|أدخل|يكتب|يُكتب|اكتب هنا|ادخل هنا|أدخل هنا|القيمة|value|enter|type here|n\/a|na)$/.test(t)||/^\{\{.+\}\}$/.test(String(s||'').trim())||/^\[.+\]$/.test(String(s||'').trim());
+};
+function matchScore(text,aliases){
+  const t=N(text);
+  let best=0;
+  for(const a of aliases){
+    if(!a)continue;
+    if(t===a)best=Math.max(best,120);
+    else if(t.startsWith(a)||t.endsWith(a))best=Math.max(best,105);
+    else if(t.includes(a))best=Math.max(best,90);
+    else if(a.includes(t)&&t.length>=4)best=Math.max(best,70);
+  }
+  return best;
+}
+function replaceTextPreserveStyle(container,value){
+  const runs=container.match(/<w:r[\s\S]*?<\/w:r>/g)||[];
+  let best=null;
+  for(const r of runs){
+    const txt=visible(r);
+    if(placeholder(txt)){best=r;break}
+  }
+  if(best){
+    const pr=rPr(best);
+    const replaced=best.replace(/<w:t[^>]*>[\s\S]*?<\/w:t>/, '<w:t xml:space="preserve">'+xEsc(value)+'</w:t>');
+    return {xml:container.replace(best,replaced),pr,method:'استبدال النص الإرشادي داخل نفس Run'};
+  }
+  return null;
+}
+function cellCandidateScore(cell,distance){
+  const txt=visible(cell);
+  let score=0;
+  if(!txt)score+=90;
+  else if(placeholder(txt))score+=80;
+  else if(txt.length<=2)score+=25;
+  else score-=80;
+  score-=distance*8;
+  if(/<w:tcPr>[\s\S]*?<\/w:tcPr>/.test(cell))score+=4;
+  return score;
+}
+function chooseTargetCell(cells,labelIndex){
+  const candidates=[];
+  for(let i=0;i<cells.length;i++){
+    if(i===labelIndex)continue;
+    const distance=Math.abs(i-labelIndex);
+    if(distance>2)continue;
+    candidates.push({index:i,score:cellCandidateScore(cells[i],distance)+(i===labelIndex+1?10:0)});
+  }
+  candidates.sort((a,b)=>b.score-a.score);
+  return candidates[0]&&candidates[0].score>0?candidates[0]:null;
+}
+function writeIntoCell(cell,labelCell,value){
+  const direct=replaceTextPreserveStyle(cell,value);
+  if(direct)return direct;
+  const paragraphs=cell.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+  const p=paragraphs[0]||'';
+  const targetPr=rPr(cell);
+  const labelPr=cleanPr(rPr(labelCell));
+  const pr=targetPr||labelPr;
+  if(p){
+    const pp=pPr(p);
+    const open=(p.match(/^<w:p[^>]*>/)||['<w:p>'])[0];
+    const newP=open+pp+run(value,pr)+'</w:p>';
+    return {xml:cell.replace(p,newP),pr,method:targetPr?'كتابة داخل فقرة الخانة بنفس تنسيقها':'كتابة داخل الخانة بتنسيق مشتق من الحقل'};
+  }
+  return {xml:cell.replace('</w:tc>','<w:p>'+run(value,pr)+'</w:p></w:tc>'),pr,method:'إنشاء فقرة داخل الخانة'};
+}
+function writeIntoParagraph(p,value){
+  const direct=replaceTextPreserveStyle(p,value);
+  if(direct)return direct;
+  const pr=cleanPr(rPr(p));
+  return {xml:p.replace('</w:p>',run(' '+value,pr)+'</w:p>'),pr,method:'إضافة القيمة بعد اسم الحقل في نفس السطر'};
+}
+function locationPartName(name){
+  if(name.includes('header'))return 'الهيدر';
+  if(name.includes('footer'))return 'الفوتر';
+  return 'المستند';
+}
 async function fillDocx(file,fields){
-  const z=await JSZip.loadAsync(await file.arrayBuffer()),entry=z.file('word/document.xml');
-  if(!entry)throw Error('تعذر قراءة Word.');
-  let xml=await entry.async('text');
+  const z=await JSZip.loadAsync(await file.arrayBuffer());
+  const partNames=Object.keys(z.files).filter(n=>/^word\/(document|header\d+|footer\d+)\.xml$/.test(n)).sort();
+  if(!partNames.includes('word/document.xml'))throw Error('تعذر قراءة Word.');
   const placements=[];
+
   for(const f of fields){
     if(!f.enabled||!f.value.trim())continue;
     const aliases=[N(f.anchor),N(f.label)].filter(Boolean);
-    let done=false;
-    const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
-    for(const row of rows){
-      const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];let li=-1;
-      for(let i=0;i<cells.length;i++){const t=N(visible(cells[i]));if(aliases.some(a=>t.includes(a))){li=i;break}}
-      if(li<0)continue;
-      const cand=[li+1,li-1].filter(i=>i>=0&&i<cells.length&&i!==li);
-      if(!cand.length)continue;
-      cand.sort((a,b)=>(blank(visible(cells[b]))?1:0)-(blank(visible(cells[a]))?1:0));
-      const ti=cand[0],tc=cells[ti],lc=cells[li];
-      if(!blank(visible(tc))&&visible(tc).length>3)continue;
-      const pr=rPr(tc)||cleanPr(rPr(lc)),ps=tc.match(/<w:p[\s\S]*?<\/w:p>/);
-      const np='<w:p>'+(ps?pPr(ps[0]):'')+run(f.value,pr)+'</w:p>';
-      const nc=ps?tc.replace(ps[0],np):tc.replace('</w:tc>',np+'</w:tc>');
-      xml=xml.replace(row,row.replace(tc,nc));
-      placements.push(Object.assign({label:f.label,where:'الخلية المقابلة في نفس الصف'},styleMeta(pr)));done=true;break;
+    let bestMatch=null;
+
+    for(const partName of partNames){
+      const entry=z.file(partName);
+      let xml=await entry.async('text');
+      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+
+      rows.forEach((row,rowIndex)=>{
+        const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
+        cells.forEach((cell,cellIndex)=>{
+          const score=matchScore(visible(cell),aliases);
+          if(score<=0)return;
+          const target=chooseTargetCell(cells,cellIndex);
+          if(!target)return;
+          const total=score+target.score;
+          if(!bestMatch||total>bestMatch.total){
+            bestMatch={kind:'table',partName,row,rowIndex,cells,labelIndex:cellIndex,targetIndex:target.index,total};
+          }
+        });
+      });
+
+      const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+      paras.forEach((p,pIndex)=>{
+        const score=matchScore(visible(p),aliases);
+        if(score<95)return;
+        const total=score-18;
+        if(!bestMatch||total>bestMatch.total){
+          bestMatch={kind:'paragraph',partName,p,pIndex,total};
+        }
+      });
     }
-    if(done)continue;
-    const ps=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
-    for(const p of ps){
-      const t=N(visible(p));if(!aliases.some(a=>t.includes(a)))continue;
-      const pr=cleanPr(rPr(p));
-      xml=xml.replace(p,p.replace('</w:p>',run(' '+f.value,pr)+'</w:p>'));
-      placements.push(Object.assign({label:f.label,where:'بعد اسم الحقل في نفس السطر'},styleMeta(pr)));done=true;break;
+
+    if(!bestMatch){
+      placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا',confidence:0,method:'تم منع الكتابة العشوائية'});
+      continue;
     }
-    if(!done)placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا'});
+
+    const entry=z.file(bestMatch.partName);
+    let xml=await entry.async('text');
+
+    if(bestMatch.kind==='table'){
+      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+      const row=rows[bestMatch.rowIndex];
+      const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
+      const labelCell=cells[bestMatch.labelIndex];
+      const targetCell=cells[bestMatch.targetIndex];
+
+      const written=writeIntoCell(targetCell,labelCell,f.value);
+      const newRow=row.replace(targetCell,written.xml);
+      xml=xml.replace(row,newRow);
+      z.file(bestMatch.partName,xml);
+
+      placements.push(Object.assign({
+        label:f.label,
+        where:locationPartName(bestMatch.partName)+' · جدول · الخلية المقابلة مباشرة',
+        confidence:Math.min(99,Math.round(bestMatch.total/2)),
+        method:written.method
+      },styleMeta(written.pr)));
+    }else{
+      const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+      const p=paras[bestMatch.pIndex];
+      const written=writeIntoParagraph(p,f.value);
+      xml=xml.replace(p,written.xml);
+      z.file(bestMatch.partName,xml);
+
+      placements.push(Object.assign({
+        label:f.label,
+        where:locationPartName(bestMatch.partName)+' · نفس السطر بعد اسم الحقل',
+        confidence:Math.min(95,Math.round(bestMatch.total/1.2)),
+        method:written.method
+      },styleMeta(written.pr)));
+    }
   }
-  z.file('word/document.xml',xml);
-  return {blob:await z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),placements:placements};
+
+  return {blob:await z.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),placements};
 }
+
 async function fillPdf(file,fields){
   const p=await PDFDocument.load(await file.arrayBuffer()),form=p.getForm(),list=form.getFields(),placements=[];
   for(const f of fields){
