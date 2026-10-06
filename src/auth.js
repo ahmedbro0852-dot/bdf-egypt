@@ -122,6 +122,12 @@ export async function signUp(email,password){
   const existing=identities!==null&&identities.length===0;
   return {user:data.user||null,needsConfirmation:!existing,existing};
 }
+export async function sendPasswordReset(email){
+  if(!email)throw new Error('اكتب بريدك الإلكتروني أولًا.');
+  const redirect=encodeURIComponent(location.origin+'/login');
+  await request('/recover?redirect_to='+redirect,{method:'POST',body:{email}});
+  return true;
+}
 export function googleEnabled(){return !!authSettings?.external?.google;}
 export async function signInGoogle(){
   if(!googleEnabled())throw new Error('تسجيل الدخول بجوجل غير مفعّل بعد في إعدادات Supabase.');
