@@ -116,8 +116,11 @@ export async function signUp(email,password){
   if(data.access_token){
     save(normalize(data));
     await hydrateUser();
+    return {user:currentUser(),needsConfirmation:false,existing:false};
   }
-  return {user:data.user||currentUser(),needsConfirmation:!data.access_token};
+  const identities=Array.isArray(data?.user?.identities)?data.user.identities:null;
+  const existing=identities!==null&&identities.length===0;
+  return {user:data.user||null,needsConfirmation:!existing,existing};
 }
 export function googleEnabled(){return !!authSettings?.external?.google;}
 export async function signInGoogle(){
