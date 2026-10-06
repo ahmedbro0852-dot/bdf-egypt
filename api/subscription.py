@@ -3,7 +3,7 @@ from http.server import BaseHTTPRequestHandler
 import os, json, hmac, hashlib, base64, secrets, time, calendar
 from datetime import datetime, timezone
 
-PLANS = [{'months':1,'price':19},{'months':3,'price':49},{'months':6,'price':89},{'months':12,'price':149}]
+PLANS = [{'months':1,'price':42},{'months':3,'price':108},{'months':6,'price':196},{'months':12,'price':328}]
 
 def encode(raw): return base64.urlsafe_b64encode(raw).decode().rstrip('=')
 def verify_license(token):
