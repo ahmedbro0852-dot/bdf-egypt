@@ -583,7 +583,7 @@ function csv(fields){const rows=[['field','value','confidence'],...fields.filter
 export function openAutofill(ctx){
   const root=ctx.root,icon=ctx.icon,refreshIcons=ctx.refreshIcons,toast=ctx.toast,onClose=ctx.onClose;
   revoke();
-  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],audit=null,busy=false,savedInputs=false;
+  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],audit=null,coverage=null,busy=false,savedInputs=false;
   root.innerHTML='<div class="modal-backdrop"><section class="workspace af-workspace" role="dialog" aria-modal="true">'+
     '<header class="workspace-header"><span class="service-logo service-logo-ai"><strong>AI</strong><span>'+icon('FileInput')+'</span></span><div><div class="workspace-title-row"><h2>تعبئة ونقل البيانات الذكي</h2><span class="workspace-tier pro">PRO</span></div><p>ارفع ملف البيانات والنموذج، وراجع النتيجة داخل BDF Egypt قبل التنزيل.</p></div><button class="icon-btn" id="af-close">'+icon('X')+'</button></header>'+
     '<div class="af-body"><div class="af-upload-grid">'+
@@ -599,9 +599,12 @@ export function openAutofill(ctx){
   const baseName=()=>String(targetFile?.name||'BDF-Egypt').replace(/\.[^.]+$/,'')+'-filled';
   q('#af-close').onclick=()=>{if(busy){toast('انتظر انتهاء العملية.');return}revoke();onClose()};
   q('#af-data-btn').onclick=()=>q('#af-data').click();q('#af-target-btn').onclick=()=>q('#af-target').click();
-  q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
-  q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
+  q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
+  q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   async function build(){
+    if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length){
+      throw Error('تدقيق تغطية المصدر لم يكتمل؛ تم إيقاف الملف بدل إخراج نقل ناقص.');
+    }
     if(target.kind==='docx'){
       const out=Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
       audit=await validateDocxOutput(out.blob,fields,targetFile,out.placements||[]);
@@ -615,8 +618,16 @@ export function openAutofill(ctx){
       return out;
     }
     audit=null;
-    if(target.kind==='pdf')return Object.assign(await fillPdf(targetFile,fields),{kind:'pdf'});
-    return Object.assign(fillText(target.text,fields),{kind:'text'});
+    const out=target.kind==='pdf'
+      ?Object.assign(await fillPdf(targetFile,fields),{kind:'pdf'})
+      :Object.assign(fillText(target.text,fields),{kind:'text'});
+    const active=fields.filter(f=>f.enabled&&String(f.value||'').trim());
+    const failed=(out.placements||[]).filter(p=>String(p.where||'').startsWith('لم')||String(p.where||'').startsWith('تعذر'));
+    if((out.placements||[]).length<active.length||failed.length){
+      const names=failed.map(x=>x.label).filter(Boolean).join('، ');
+      throw Error('تدقيق الناتج أوقف الملف لأن بعض القيم لم تُكتب فعليًا.'+(names?' الخانات: '+names:''));
+    }
+    return out;
   }
   function renderAudit(){
     const box=q('#af-audit');if(!box)return;
@@ -653,6 +664,8 @@ export function openAutofill(ctx){
       target=await readTarget(targetFile);lock(true,'جاري مطابقة كل خانة بمصدرها…');
       const trialCode=q('#af-trial')?.value.trim()||'';
       const aiResult=await askAI(source,target.text,trialCode);
+      coverage=aiResult.coverage||null;
+      if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length)throw Error('لم ينجح تدقيق التغطية الكاملة للمصدر؛ لن يتم إخراج ملف ناقص.');
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
       status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
