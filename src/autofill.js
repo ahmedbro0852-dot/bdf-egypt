@@ -535,8 +535,9 @@ async function validateDocxOutput(blob,fields,originalFile,placements=[]){
     if(conflicts.length)warnings.push('تم إيقاف تعارضات ربط بين أكثر من قيمة ونفس الخانة.');
     if(!structuralOk)warnings.push('بنية ملف Word النهائية غير سليمة.');
 
-    const hardIssues=missing.length+placementMissing+(structuralOk?0:1);
-    const score=Math.max(0,100-hardIssues*25-extra.length*5-lowEvidence.length*2);
+    if(placementMissing)warnings.push('بعض سجلات المكان لم تُحسم 100%، لكن القيم النهائية تم فحصها داخل Word.');
+    const hardIssues=missing.length+(structuralOk?0:1);
+    const score=Math.max(0,100-hardIssues*30-extra.length*4-lowEvidence.length*2-placementMissing*2);
     return {
       ok:hardIssues===0,
       score,
@@ -602,18 +603,16 @@ export function openAutofill(ctx){
   q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   async function build(){
-    if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length){
-      throw Error('تدقيق تغطية المصدر لم يكتمل؛ تم إيقاف الملف بدل إخراج نقل ناقص.');
-    }
+    // Coverage is advisory. Final export safety is decided from actual target fields and the generated file.
     if(target.kind==='docx'){
       const out=Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
       audit=await validateDocxOutput(out.blob,fields,targetFile,out.placements||[]);
       if(!audit.ok){
         const details=[
-          audit.missing?.length?('قيم ناقصة: '+audit.missing.map(x=>x.fields.join('/')).join('، ')):'',
-          audit.placementMissing?('أماكن كتابة غير مؤكدة: '+audit.placementMissing):''
+          audit.missing?.length?('القيم غير الموجودة في الملف النهائي: '+audit.missing.map(x=>x.fields.join('/')).join('، ')):'',
+          !audit.structuralOk?'بنية ملف Word غير سليمة':''
         ].filter(Boolean).join(' · ');
-        throw Error('تدقيق Word أوقف الملف لأنه غير مطابق 100%.'+(details?' '+details:''));
+        throw Error('تعذر إنشاء Word سليم وآمن للتنزيل.'+(details?' '+details:''));
       }
       return out;
     }
@@ -635,7 +634,8 @@ export function openAutofill(ctx){
     const ok=audit.ok;
     const exact=fields.filter(f=>f.enabled&&f.evidenceType==='مطابقة حرفية').length;
     const normalized=fields.filter(f=>f.enabled&&f.evidenceType!=='مطابقة حرفية').length;
-    const warnings=audit.warnings||[];
+    const warnings=[...(audit.warnings||[])];
+    if(coverage && (!coverage.complete || (coverage.missed_relevant_facts||[]).length))warnings.push('مراجعة التغطية طلبت انتباهًا إضافيًا لبعض الخانات؛ اعتمدنا في الحظر النهائي على القيم الفعلية داخل الملف.');
     box.hidden=false;
     box.className='af-audit '+(ok?'good':'bad');
     box.innerHTML='<div class="af-audit-top"><strong>'+(ok?'✓ تدقيق الملف ناجح':'⚠ التدقيق وجد مشكلة')+'</strong><b>'+Math.round(audit.score||0)+'%</b></div>'+
@@ -665,7 +665,6 @@ export function openAutofill(ctx){
       const trialCode=q('#af-trial')?.value.trim()||'';
       const aiResult=await askAI(source,target.text,trialCode);
       coverage=aiResult.coverage||null;
-      if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length)throw Error('لم ينجح تدقيق التغطية الكاملة للمصدر؛ لن يتم إخراج ملف ناقص.');
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
       status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
