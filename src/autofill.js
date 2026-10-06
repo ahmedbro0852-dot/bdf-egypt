@@ -126,6 +126,46 @@ const visible=xml=>xDec((xml.match(/<w:t[^>]*>[\s\S]*?<\/w:t>/g)||[]).map(x=>x.r
 const rPr=xml=>(xml.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)||[])[0]||'';
 const pPr=xml=>(xml.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)||[])[0]||'';
 const cleanPr=pr=>pr.replace(/<w:b(?:\s*\/>|>[\s\S]*?<\/w:b>)/g,'').replace(/<w:bCs(?:\s*\/>|>[\s\S]*?<\/w:bCs>)/g,'');
+function visiblePr(primary='',fallback=''){
+  let pr=String(primary||'');
+  const fb=String(fallback||'');
+  // Word can keep hidden/white/very-small formatting inside an otherwise blank cell.
+  pr=pr
+    .replace(/<w:(?:vanish|webHidden|specVanish)(?:\s[^>]*)?\/>/g,'')
+    .replace(/<w:(?:vanish|webHidden|specVanish)[^>]*>[\s\S]*?<\/w:(?:vanish|webHidden|specVanish)>/g,'')
+    .replace(/<w:highlight[^>]*w:val="(?:white|none)"[^>]*\/>/gi,'')
+    .replace(/<w:shd[^>]*w:fill="(?:FFFFFF|ffffff|auto)"[^>]*\/>/g,'');
+
+  const color=(pr.match(/<w:color[^>]*w:val="([^"]+)"/i)||[])[1];
+  if(color&&/^(?:fff(?:fff)?|ffffff|fefefe|fdfdfd)$/i.test(color)){
+    pr=pr.replace(/<w:color[^>]*\/>/gi,'');
+    const fbColor=(fb.match(/<w:color[^>]*w:val="([^"]+)"/i)||[])[0];
+    pr+=fbColor||'<w:color w:val="000000"/>';
+  }
+
+  const sizeMatch=(pr.match(/<w:sz[^>]*w:val="([^"]+)"/i)||[])[1];
+  if(sizeMatch&&Number(sizeMatch)<16){
+    pr=pr.replace(/<w:sz[^>]*\/>/gi,'').replace(/<w:szCs[^>]*\/>/gi,'');
+    const fbSz=(fb.match(/<w:sz[^>]*w:val="([^"]+)"/i)||[])[0];
+    const fbSzCs=(fb.match(/<w:szCs[^>]*w:val="([^"]+)"/i)||[])[0];
+    pr+=(fbSz||'<w:sz w:val="22"/>')+(fbSzCs||'<w:szCs w:val="22"/>');
+  }
+
+  if(!/<w:rFonts\b/i.test(pr)){
+    const font=(fb.match(/<w:rFonts[^>]*\/>/i)||[])[0];
+    if(font)pr+=font;
+  }
+  if(!/<w:sz\b/i.test(pr)){
+    const size=(fb.match(/<w:sz[^>]*\/>/i)||[])[0];
+    const sizeCs=(fb.match(/<w:szCs[^>]*\/>/i)||[])[0];
+    pr+=(size||'<w:sz w:val="22"/>')+(sizeCs||'<w:szCs w:val="22"/>');
+  }
+  if(!/<w:color\b/i.test(pr)){
+    const colorFallback=(fb.match(/<w:color[^>]*\/>/i)||[])[0];
+    pr+=colorFallback||'<w:color w:val="000000"/>';
+  }
+  return pr;
+}
 function styleMeta(pr){
   const sz=(pr.match(/<w:sz[^>]*w:val="([^"]+)"/)||[])[1];
   const color=(pr.match(/<w:color[^>]*w:val="([^"]+)"/)||[])[1];
@@ -150,7 +190,7 @@ function matchScore(text,aliases){
   }
   return best;
 }
-function replaceTextPreserveStyle(container,value){
+function replaceTextPreserveStyle(container,value,fallbackPr=''){
   const runs=container.match(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)||[];
   let best=null;
   for(const r of runs){
@@ -158,9 +198,9 @@ function replaceTextPreserveStyle(container,value){
     if(placeholder(txt)){best=r;break}
   }
   if(best){
-    const pr=rPr(best);
-    const replaced=best.replace(/<w:t[^>]*>[\s\S]*?<\/w:t>/, '<w:t xml:space="preserve">'+xEsc(value)+'</w:t>');
-    return {xml:container.replace(best,replaced),pr,method:'استبدال النص الإرشادي داخل نفس Run'};
+    const pr=visiblePr(rPr(best),fallbackPr);
+    const replaced=run(value,pr);
+    return {xml:container.replace(best,replaced),pr,method:'استبدال النص الإرشادي مع تثبيت تنسيق مرئي'};
   }
   return null;
 }
@@ -187,13 +227,13 @@ function chooseTargetCell(cells,labelIndex){
   return candidates[0]&&candidates[0].score>0?candidates[0]:null;
 }
 function writeIntoCell(cell,labelCell,value){
-  const direct=replaceTextPreserveStyle(cell,value);
+  const labelPr=cleanPr(rPr(labelCell));
+  const direct=replaceTextPreserveStyle(cell,value,labelPr);
   if(direct)return direct;
   const paragraphs=cell.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
   const p=paragraphs[0]||'';
   const targetPr=rPr(cell);
-  const labelPr=cleanPr(rPr(labelCell));
-  const pr=targetPr||labelPr;
+  const pr=visiblePr(targetPr,labelPr);
   if(p){
     const pp=pPr(p);
     const open=(p.match(/^<w:p[^>]*>/)||['<w:p>'])[0];
@@ -203,10 +243,11 @@ function writeIntoCell(cell,labelCell,value){
   return {xml:cell.replace('</w:tc>','<w:p>'+run(value,pr)+'</w:p></w:tc>'),pr,method:'إنشاء فقرة داخل الخانة'};
 }
 function writeIntoParagraph(p,value){
-  const direct=replaceTextPreserveStyle(p,value);
+  const base=cleanPr(rPr(p));
+  const direct=replaceTextPreserveStyle(p,value,base);
   if(direct)return direct;
-  const pr=cleanPr(rPr(p));
-  return {xml:p.replace('</w:p>',run(' '+value,pr)+'</w:p>'),pr,method:'إضافة القيمة بعد اسم الحقل في نفس السطر'};
+  const pr=visiblePr(base,base);
+  return {xml:p.replace('</w:p>',run(' '+value,pr)+'</w:p>'),pr,method:'إضافة القيمة بعد اسم الحقل بتنسيق مرئي آمن'};
 }
 function locationPartName(name){
   if(name.includes('header'))return 'الهيدر';
@@ -329,6 +370,17 @@ function fillText(template,fields){
   }
   return {text:out,blob:new Blob([out],{type:'text/plain;charset=utf-8'}),placements:placements};
 }
+async function validateDocxOutput(blob,fields){
+  try{
+    const text=await docxText(new File([blob],'output.docx',{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));
+    const nt=N(text);
+    const active=fields.filter(f=>f.enabled&&String(f.value||'').trim());
+    const missing=active.filter(f=>!nt.includes(N(f.value)));
+    return {ok:active.length===0||missing.length===0,missing};
+  }catch{
+    return {ok:false,missing:fields.filter(f=>f.enabled)};
+  }
+}
 async function previewDocx(blob){
   const m=(await import('mammoth')).default||await import('mammoth'),D=(await import('dompurify')).default;
   return D.sanitize((await m.convertToHtml({arrayBuffer:await blob.arrayBuffer()})).value||'',{FORBID_TAGS:['script','iframe','object','embed','form']});
@@ -371,7 +423,12 @@ export function openAutofill(ctx){
   q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   async function build(){
-    if(target.kind==='docx')return Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
+    if(target.kind==='docx'){
+      const out=Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
+      const check=await validateDocxOutput(out.blob,fields);
+      if(!check.ok)throw Error('ملف Word النهائي فقد بعض القيم أثناء التصدير. تم إيقاف التنزيل بدل إرسال ملف ناقص.');
+      return out;
+    }
     if(target.kind==='pdf')return Object.assign(await fillPdf(targetFile,fields),{kind:'pdf'});
     return Object.assign(fillText(target.text,fields),{kind:'text'});
   }
@@ -429,7 +486,7 @@ export function openAutofill(ctx){
           await saveAndDl(await D.Packer.toBlob(doc),b+'.docx');
         }
       }
-      status('تم تجهيز الملف.');
+      status(filled.kind==='docx'?'تم تجهيز ملف Word والتحقق من وجود البيانات داخله فعليًا.':'تم تجهيز الملف.');
     }catch(e){error(e.message||'تعذر تجهيز الملف.')}finally{lock(false,'')}
   };
   return ()=>revoke();
