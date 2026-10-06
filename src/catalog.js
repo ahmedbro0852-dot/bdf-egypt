@@ -25,6 +25,7 @@ export const tools=[
 ['protect','حماية بكلمة مرور','شفّر مستندك بكلمة مرور باستخدام AES.','security','LockKeyhole','green','pdf'],
 ['unlock','فتح PDF','افتح مستندًا محميًا باستخدام كلمة مروره.','security','UnlockKeyhole','green','pdf'],
 ['forms','تعبئة النماذج','املأ حقول النص ومربعات الاختيار الموجودة.','edit','ClipboardList','blue','pdf'],
+['autofill','تعبئة بيانات تلقائية','اسحب البيانات من ملف واملأ نموذج Word أو PDF تلقائيًا مع معاينة.','extra','FileInput','blue','autofill'],
 ['ocr','استخراج نص من الصور','تعرّف على النص العربي والإنجليزي من صور أو PDF.','extra','ScanText','purple','ocr'],
 ['text','PDF إلى نص','استخرج النصوص في ملف TXT أو Markdown.','convert','Text','blue','pdf'],
 ['html-pdf','نص وHTML إلى PDF','أنشئ PDF من نص أو محتوى HTML.','convert','CodeXml','amber','html'],
