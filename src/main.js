@@ -6,6 +6,14 @@ import {initSubscriptions,hasPremium,membershipToken,hasAiPack,aiPackToken,hasPr
 import {initAuth,currentUser,signIn,signUp,signInGoogle,signOut,googleEnabled,sendPasswordReset} from './auth.js';
 import {openAutofill} from './autofill.js';
 import {saveCloudFiles,saveCloudResults,listCloudFiles,downloadCloudFile,deleteCloudFile} from './cloud-files.js';
+
+window.addEventListener('vite:preloadError',()=>{
+  try{
+    const key='bdf:chunk-reload';
+    const last=Number(sessionStorage.getItem(key)||0);
+    if(Date.now()-last>10000){sessionStorage.setItem(key,String(Date.now()));location.reload();}
+  }catch{location.reload();}
+});
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=name=>`<i data-lucide="${name.replace(/([a-z0-9])([A-Z])/g,'$1-$2').toLowerCase()}"></i>`;
