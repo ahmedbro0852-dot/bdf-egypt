@@ -178,7 +178,7 @@ function verify(fields,source){
       evidenceType:evidence.type,
       evidenceScore:evidence.score,
       verified:evidence.ok,
-      enabled:Boolean(value)&&evidence.ok&&confidence>=.62,
+      enabled:Boolean(value)&&evidence.ok&&confidence>=.9&&evidence.score>=.96,
       originalIndex:index,
       conflict:''
     };
@@ -661,7 +661,7 @@ function csv(fields){const rows=[['field','value','confidence'],...fields.filter
 export function openAutofill(ctx){
   const root=ctx.root,icon=ctx.icon,refreshIcons=ctx.refreshIcons,toast=ctx.toast,onClose=ctx.onClose;
   revoke();
-  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],audit=null,coverage=null,busy=false,savedInputs=false;
+  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],audit=null,coverage=null,requiredMappings=[],busy=false,savedInputs=false;
   root.innerHTML='<div class="modal-backdrop"><section class="workspace af-workspace" role="dialog" aria-modal="true">'+
     '<header class="workspace-header"><span class="service-logo service-logo-ai"><strong>AI</strong><span>'+icon('FileInput')+'</span></span><div><div class="workspace-title-row"><h2>تعبئة ونقل البيانات الذكي</h2><span class="workspace-tier pro">PRO</span></div><p>ارفع ملف البيانات والنموذج، وراجع النتيجة داخل BDF Egypt قبل التنزيل.</p></div><button class="icon-btn" id="af-close">'+icon('X')+'</button></header>'+
     '<div class="af-body"><div class="af-upload-grid">'+
@@ -677,10 +677,20 @@ export function openAutofill(ctx){
   const baseName=()=>String(targetFile?.name||'BDF-Egypt').replace(/\.[^.]+$/,'')+'-filled';
   q('#af-close').onclick=()=>{if(busy){toast('انتظر انتهاء العملية.');return}revoke();onClose()};
   q('#af-data-btn').onclick=()=>q('#af-data').click();q('#af-target-btn').onclick=()=>q('#af-target').click();
-  q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
-  q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;coverage=null;audit=null;q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
+  q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;coverage=null;audit=null;requiredMappings=[];q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
+  q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;coverage=null;audit=null;requiredMappings=[];q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
   async function build(){
-    // Coverage is advisory. Final export safety is decided from actual target fields and the generated file.
+    if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length){
+      throw Error('التدقيق المزدوج لم يثبت التغطية الكاملة؛ لن يتم إنشاء أو تنزيل ملف ناقص.');
+    }
+    const missingRequired=requiredMappings.filter(m=>!fields.some(f=>f.enabled&&f.label===m.label&&auditToken(f.value)===m.value));
+    if(missingRequired.length){
+      throw Error('تم إيقاف الملف لأن قيمة مؤكدة أُزيلت أو تغيّرت بعد التدقيق: '+missingRequired.map(x=>x.label).join('، '));
+    }
+    const unsafe=fields.filter(f=>String(f.value||'').trim()&&(!f.enabled||!f.verified||Number(f.confidence||0)<.9||Number(f.evidenceScore||0)<.96));
+    if(unsafe.length){
+      throw Error('تم إيقاف الملف لأن بعض القيم لم تصل لدرجة التحقق الصارمة: '+unsafe.map(x=>x.label).join('، '));
+    }
     if(target.kind==='docx'){
       const out=Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
       audit=await validateDocxOutput(out.blob,fields,targetFile,out.placements||[]);
@@ -716,7 +726,7 @@ export function openAutofill(ctx){
     const exact=fields.filter(f=>f.enabled&&f.evidenceType==='مطابقة حرفية').length;
     const normalized=fields.filter(f=>f.enabled&&f.evidenceType!=='مطابقة حرفية').length;
     const warnings=[...(audit.warnings||[])];
-    if(coverage && (!coverage.complete || (coverage.missed_relevant_facts||[]).length))warnings.push('مراجعة التغطية طلبت انتباهًا إضافيًا لبعض الخانات؛ اعتمدنا في الحظر النهائي على القيم الفعلية داخل الملف.');
+    if(coverage?.complete&&!((coverage.missed_relevant_facts||[]).length))warnings.push('تغطية المصدر والنموذج اجتازت التدقيق المزدوج بدون معلومات قابلة للنقل مفقودة.');
     box.hidden=false;
     box.className='af-audit '+(ok?'good':'bad');
     box.innerHTML='<div class="af-audit-top"><strong>'+(ok?'✓ تدقيق الملف ناجح':'⚠ التدقيق وجد مشكلة')+'</strong><b>'+Math.round(audit.score||0)+'%</b></div>'+
@@ -734,8 +744,8 @@ export function openAutofill(ctx){
       const evidence=f.evidenceType||'غير مدقق';
       return '<div class="af-field '+((!f.verified||f.confidence<.75||f.conflict)?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><input data-v="'+i+'" value="'+E(f.value)+'" placeholder="غير موجود"><div class="af-meta"><span>'+(f.verified?'✓ '+E(evidence):'⚠ غير مثبت من المصدر')+' · دقة البيانات '+Math.round(f.confidence*100)+'%</span>'+(f.conflict?'<span>⚠ '+E(f.conflict)+'</span>':'')+'<span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+(place?' · '+E(place):'')+'</span>'+(method?'<span>طريقة الكتابة: '+E(method)+'</span>':'')+(style?'<span>'+E(style)+'</span>':'')+'</div></div>';
     }).join('');
-    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const allowed=f.verified&&!f.conflict&&f.confidence>=.62&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر ومن غير تعارض قبل تفعيلها.');});
-    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&f.confidence>=.62;});
+    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&f.confidence>=.9&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
+    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&f.confidence>=.9&&ev.score>=.96;coverage=null;});
     renderAudit();
   }
   q('#af-analyze').onclick=async()=>{
@@ -756,10 +766,12 @@ export function openAutofill(ctx){
       let aiResult;
       try{aiResult=await askAI(source,target.text,trialCode);}finally{clearInterval(reviewTicker);}
       coverage=aiResult.coverage||null;
+      if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length)throw Error('التدقيق المزدوج لم يثبت التغطية الكاملة؛ لن يتم إنشاء ملف ناقص.');
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
+      requiredMappings=fields.filter(f=>String(f.value||'').trim()).map(f=>({label:f.label,value:auditToken(f.value)}));
       filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
       const passInfo=' · تم '+String(aiResult.reviewPasses||2)+' مراحل AI'+(aiResult.reevaluatedFields?' · أُعيد تقييم '+String(aiResult.reevaluatedFields)+' خانة حساسة':'');
-      status((aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.')+passInfo);
+      status((aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل بتدقيق مزدوج وتغطية كاملة. راجع النتيجة ثم اعرض المعاينة.')+passInfo);
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
   };
   q('#af-preview').onclick=async()=>{
