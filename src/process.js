@@ -48,7 +48,7 @@ export const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 
 export async function advanced(action,file,o){
  if(file.size>2.8*1024*1024)throw Error('حد الخدمة المتقدمة 2.8 MB.');
- let content;const isAI=['summarize','translate'].includes(action);
+ let content;const isAI=['summarize','translate'].includes(action); // Pro AI only; token gating is enforced server-side.
  if(isAI){content=(await extractText(file)).join('\n\n');if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
  else{const b=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<b.length;i+=8192)raw+=String.fromCharCode(...b.subarray(i,i+8192));content=btoa(raw);}
  const response=await fetch('/api/advanced',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
