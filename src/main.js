@@ -8,6 +8,16 @@ import {openAutofill} from './autofill.js';
 import {readVisual,renderPage,execute} from './process.js';
 import {saveCloudFiles,saveCloudResults,listCloudFiles,downloadCloudFile,deleteCloudFile} from './cloud-files.js';
 
+window.addEventListener('unhandledrejection',e=>{
+  const msg=String(e?.reason?.message||e?.reason||'');
+  if(/dynamically imported module|failed to fetch.*module|module script/i.test(msg)){
+    try{
+      const key='bdf:module-reload';
+      const last=Number(sessionStorage.getItem(key)||0);
+      if(Date.now()-last>10000){sessionStorage.setItem(key,String(Date.now()));location.reload();}
+    }catch{location.reload();}
+  }
+});
 window.addEventListener('vite:preloadError',()=>{
   try{
     const key='bdf:chunk-reload';
