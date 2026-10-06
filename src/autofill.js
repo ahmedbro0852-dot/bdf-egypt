@@ -687,7 +687,7 @@ export function openAutofill(ctx){
     if(missingRequired.length){
       throw Error('تم إيقاف الملف لأن قيمة مؤكدة أُزيلت أو تغيّرت بعد التدقيق: '+missingRequired.map(x=>x.label).join('، '));
     }
-    const unsafe=fields.filter(f=>String(f.value||'').trim()&&(!f.enabled||!f.verified||Number(f.confidence||0)<.9||Number(f.evidenceScore||0)<.96));
+    const unsafe=fields.filter(f=>f.enabled&&String(f.value||'').trim()&&(!f.verified||f.conflict||Number(f.evidenceScore||0)<.96));
     if(unsafe.length){
       throw Error('تم إيقاف الملف لأن بعض القيم لم تصل لدرجة التحقق الصارمة: '+unsafe.map(x=>x.label).join('، '));
     }
@@ -744,8 +744,8 @@ export function openAutofill(ctx){
       const evidence=f.evidenceType||'غير مدقق';
       return '<div class="af-field '+((!f.verified||f.confidence<.75||f.conflict)?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><input data-v="'+i+'" value="'+E(f.value)+'" placeholder="غير موجود"><div class="af-meta"><span>'+(f.verified?'✓ '+E(evidence):'⚠ غير مثبت من المصدر')+' · دقة البيانات '+Math.round(f.confidence*100)+'%</span>'+(f.conflict?'<span>⚠ '+E(f.conflict)+'</span>':'')+'<span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+(place?' · '+E(place):'')+'</span>'+(method?'<span>طريقة الكتابة: '+E(method)+'</span>':'')+(style?'<span>'+E(style)+'</span>':'')+'</div></div>';
     }).join('');
-    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&f.confidence>=.9&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
-    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&f.confidence>=.9&&ev.score>=.96;coverage=null;});
+    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
+    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&!f.conflict&&ev.score>=.96;const idx=requiredMappings.findIndex(m=>m.label===f.label);if(f.enabled){const next={label:f.label,value:auditToken(f.value)};if(idx>=0)requiredMappings[idx]=next;else requiredMappings.push(next);}else if(idx>=0)requiredMappings.splice(idx,1);});
     renderAudit();
   }
   q('#af-analyze').onclick=async()=>{
@@ -768,7 +768,7 @@ export function openAutofill(ctx){
       coverage=aiResult.coverage||null;
       if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length)throw Error('التدقيق المزدوج لم يثبت التغطية الكاملة؛ لن يتم إنشاء ملف ناقص.');
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
-      requiredMappings=fields.filter(f=>String(f.value||'').trim()).map(f=>({label:f.label,value:auditToken(f.value)}));
+      requiredMappings=fields.filter(f=>f.enabled&&f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&String(f.value||'').trim()).map(f=>({label:f.label,value:auditToken(f.value)}));
       filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
       const passInfo=' · تم '+String(aiResult.reviewPasses||2)+' مراحل AI'+(aiResult.reevaluatedFields?' · أُعيد تقييم '+String(aiResult.reevaluatedFields)+' خانة حساسة':'');
       status((aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل بتدقيق مزدوج وتغطية كاملة. راجع النتيجة ثم اعرض المعاينة.')+passInfo);
