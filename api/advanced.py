@@ -98,7 +98,7 @@ def trial_call(code, consume=0):
         except Exception:
             detail=''
         if 'trial limit exceeded' in detail:
-            raise ValueError('انتهت التجارب الثلاثة لهذا الكود.')
+            raise ValueError('انتهت محاولات هذا الكود.')
         if 'invalid trial code' in detail:
             raise ValueError('كود التجربة غير صحيح.')
         raise RuntimeError('trial service unavailable')
