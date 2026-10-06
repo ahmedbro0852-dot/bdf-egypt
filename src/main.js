@@ -3,7 +3,7 @@ import {createIcons,icons} from 'lucide';
 import {tools,categories} from './catalog.js';
 import {loadPdf} from './engine.js';
 import {initSubscriptions,hasPremium,membershipToken,premiumOptions,bindPremium,batchIds,openPricing,openAdmin,usageLimits} from './subscription.js';
-import {initAuth,currentUser,signIn,signUp,signInGoogle,signOut,googleEnabled} from './auth.js';
+import {initAuth,currentUser,signIn,signUp,signInGoogle,signOut,googleEnabled,sendPasswordReset} from './auth.js';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=name=>`<i data-lucide="${name.replace(/([a-z0-9])([A-Z])/g,'$1-$2').toLowerCase()}"></i>`;
@@ -103,10 +103,62 @@ function openAuthPanel(push=true,authError=''){
     return;
   }
   const googleReady=googleEnabled();
-  infoModal('تسجيل الدخول',`<div class="auth-shell"><button type="button" class="google-button" id="google-login" ${googleReady?'':'disabled'}><span class="google-mark">G</span>${googleReady?'المتابعة باستخدام Google':'Google غير مفعّل حاليًا'}</button>${googleReady?'':'<p class="auth-provider-note">استخدم البريد وكلمة المرور الآن. دخول Google سيتاح بمجرد تفعيل المزود.</p>'}<div class="auth-divider"><span>أو</span></div><form id="login-form" class="auth-form"><label>البريد الإلكتروني<input id="auth-email" type="email" required autocomplete="email" dir="ltr" placeholder="name@example.com"></label><label>كلمة المرور<input id="auth-password" type="password" required minlength="6" autocomplete="current-password" dir="ltr"></label><button class="primary auth-wide" type="submit">تسجيل الدخول</button><button class="secondary auth-wide" type="button" id="signup-account">إنشاء حساب جديد</button><p class="auth-message" id="auth-message" role="status">${authError?esc(authError):''}</p></form></div>`);
-  $('#google-login').onclick=async()=>{const msg=$('#auth-message');try{await signInGoogle();}catch(err){if(msg)msg.textContent=err.message;}};
-  $('#login-form').onsubmit=async e=>{e.preventDefault();const msg=$('#auth-message'),btn=e.submitter;btn.disabled=true;msg.textContent='جارٍ تسجيل الدخول...';try{await signIn($('#auth-email').value.trim(),$('#auth-password').value);updateAccountButton();openAuthPanel(false);}catch(err){msg.textContent=err.message;}finally{btn.disabled=false;}};
-  $('#signup-account').onclick=async()=>{const email=$('#auth-email').value.trim(),password=$('#auth-password').value,msg=$('#auth-message');if(!email||password.length<6){msg.textContent='اكتب بريدًا صحيحًا وكلمة مرور 6 أحرف على الأقل.';return;}msg.textContent='جارٍ إنشاء الحساب...';try{const r=await signUp(email,password);if(r.existing){msg.textContent='الحساب موجود بالفعل. سجّل الدخول بكلمة المرور السابقة بدل إنشاء حساب جديد.';$('#auth-password').focus();return;}if(r.needsConfirmation){msg.textContent='تم إنشاء الحساب. افتح رسالة التأكيد في بريدك ثم سجّل الدخول.';}else{updateAccountButton();openAuthPanel(false);}}catch(err){msg.textContent=err.message;}};
+  infoModal('الدخول إلى BDF Egypt',`<div class="auth-shell">
+    <div class="auth-tabs" role="tablist">
+      <button class="auth-tab active" type="button" data-auth-mode="login">تسجيل الدخول</button>
+      <button class="auth-tab" type="button" data-auth-mode="signup">حساب جديد</button>
+    </div>
+    <button type="button" class="google-button" id="google-login" ${googleReady?'':'disabled'}><span class="google-mark">G</span>${googleReady?'المتابعة باستخدام Google':'Google غير مفعّل حاليًا'}</button>
+    <div class="auth-divider"><span>أو بالبريد</span></div>
+    <form id="login-form" class="auth-form">
+      <label>البريد الإلكتروني<input id="auth-email" type="email" required autocomplete="email" dir="ltr" placeholder="name@example.com"></label>
+      <label>كلمة المرور<input id="auth-password" type="password" required minlength="6" autocomplete="current-password" dir="ltr" placeholder="6 أحرف على الأقل"></label>
+      <button class="primary auth-wide" id="auth-submit" type="submit">دخول</button>
+      <button class="auth-link" type="button" id="forgot-password">نسيت كلمة المرور؟</button>
+      <p class="auth-helper" id="auth-helper">لو عندك حساب قديم استخدم نفس البريد وكلمة المرور.</p>
+      <p class="auth-message" id="auth-message" role="status">${authError?esc(authError):''}</p>
+    </form>
+  </div>`);
+  let mode='login';
+  const setMode=next=>{
+    mode=next;
+    document.querySelectorAll('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));
+    const submit=$('#auth-submit'),pass=$('#auth-password'),forgot=$('#forgot-password'),helper=$('#auth-helper');
+    if(mode==='signup'){
+      submit.textContent='إنشاء الحساب';
+      pass.autocomplete='new-password';
+      forgot.hidden=true;
+      helper.textContent='اكتب بريدك وكلمة مرور جديدة، والحساب يتعمل في خطوة واحدة.';
+    }else{
+      submit.textContent='دخول';
+      pass.autocomplete='current-password';
+      forgot.hidden=false;
+      helper.textContent='لو عندك حساب قديم استخدم نفس البريد وكلمة المرور.';
+    }
+    $('#auth-message').textContent='';
+  };
+  document.querySelectorAll('[data-auth-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.authMode));
+  $('#google-login').onclick=async()=>{const msg=$('#auth-message');try{await signInGoogle();}catch(err){msg.textContent=err.message;}};
+  $('#forgot-password').onclick=async()=>{const email=$('#auth-email').value.trim(),msg=$('#auth-message');if(!email){msg.textContent='اكتب بريدك الإلكتروني الأول.';$('#auth-email').focus();return;}msg.textContent='جارٍ إرسال رابط الاستعادة...';try{await sendPasswordReset(email);msg.textContent='تم إرسال رابط استعادة كلمة المرور. راجع بريدك.';}catch(err){msg.textContent=err.message;}};
+  $('#login-form').onsubmit=async e=>{
+    e.preventDefault();
+    const email=$('#auth-email').value.trim(),password=$('#auth-password').value,msg=$('#auth-message'),btn=$('#auth-submit');
+    if(!email||password.length<6){msg.textContent='اكتب بريدًا صحيحًا وكلمة مرور 6 أحرف على الأقل.';return;}
+    btn.disabled=true;
+    msg.textContent=mode==='signup'?'جارٍ إنشاء الحساب...':'جارٍ تسجيل الدخول...';
+    try{
+      if(mode==='signup'){
+        const r=await signUp(email,password);
+        if(r.existing){msg.textContent='البريد ده عنده حساب بالفعل. حوّلنا لك وضع الدخول.';setMode('login');$('#auth-password').focus();return;}
+        if(r.needsConfirmation){msg.textContent='تم إنشاء الحساب. راجع رسالة التأكيد في بريدك.';return;}
+      }else{
+        await signIn(email,password);
+      }
+      updateAccountButton();
+      openAuthPanel(false);
+    }catch(err){msg.textContent=err.message;}
+    finally{btn.disabled=false;}
+  };
 }
 
 document.addEventListener('click',e=>{const tool=e.target.closest('[data-tool]');if(tool){e.preventDefault();openTool(tool.dataset.tool);return;}const cat=e.target.closest('[data-cat]');if(cat)setCategory(cat.dataset.cat);const fav=e.target.closest('[data-favorite]');if(fav){const id=fav.dataset.favorite;favorites=favorites.includes(id)?favorites.filter(x=>x!==id):[...favorites,id];storage.set('bdf:favorites',favorites);renderGrid();}const move=e.target.closest('[data-move]');if(move&&!busy){const i=Number(move.dataset.move),j=i+Number(move.dataset.direction);[files[i],files[j]]=[files[j],files[i]];renderFiles();$('#page-preview').innerHTML='';}const remove=e.target.closest('[data-remove]');if(remove&&!busy){files.splice(Number(remove.dataset.remove),1);renderFiles();$('#page-preview').innerHTML='';if(active?.id==='forms')$('#form-fields').innerHTML='<p class="field-hint">اختر الملف لعرض حقول النموذج.</p>';}if(e.target.closest('#clear-recent')){recent=[];storage.set('bdf:recent',recent);renderRecent();}});
