@@ -111,16 +111,24 @@ export async function signIn(email,password){
   return currentUser();
 }
 export async function signUp(email,password){
-  const redirect=encodeURIComponent(location.origin+'/login');
-  const data=await request('/signup?redirect_to='+redirect,{method:'POST',body:{email,password}});
-  if(data.access_token){
-    save(normalize(data));
-    await hydrateUser();
-    return {user:currentUser(),needsConfirmation:false,existing:false};
+  const res=await fetch('/api/signup',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email,password})
+  });
+  let data={};
+  try{data=await res.json();}catch{}
+  if(res.status===409||data.status==='existing'){
+    try{
+      const user=await signIn(email,password);
+      return {user,needsConfirmation:false,existing:true,signedIn:true};
+    }catch{
+      return {user:null,needsConfirmation:false,existing:true,signedIn:false};
+    }
   }
-  const identities=Array.isArray(data?.user?.identities)?data.user.identities:null;
-  const existing=identities!==null&&identities.length===0;
-  return {user:data.user||null,needsConfirmation:!existing,existing};
+  if(!res.ok)throw new Error(data.error||'تعذر إنشاء الحساب.');
+  const user=await signIn(email,password);
+  return {user,needsConfirmation:false,existing:false,signedIn:true};
 }
 export async function sendPasswordReset(email){
   if(!email)throw new Error('اكتب بريدك الإلكتروني أولًا.');
