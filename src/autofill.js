@@ -742,13 +742,24 @@ export function openAutofill(ctx){
     error('');lock(true,'جاري قراءة الملفات…');
     try{
       source=await readSource(dataFile,status);if(!source.trim())throw Error('ملف البيانات لا يحتوي نصًا مقروءًا.');
-      target=await readTarget(targetFile);lock(true,'جاري مطابقة كل خانة بمصدرها…');
+      target=await readTarget(targetFile);
+      const reviewMessages=[
+        'المرحلة 1/4 — فهم النموذج واستخراج الخانات…',
+        'المرحلة 2/4 — مطابقة القيم مع المصدر…',
+        'المرحلة 3/4 — مراجعة مستقلة وإعادة تقييم الخانات الحساسة…',
+        'المرحلة 4/4 — فحص الاتساق قبل إنشاء الملف…'
+      ];
+      let reviewStep=0;
+      lock(true,reviewMessages[0]);
+      const reviewTicker=setInterval(()=>{reviewStep=Math.min(reviewMessages.length-1,reviewStep+1);status(reviewMessages[reviewStep]);},3200);
       const trialCode=q('#af-trial')?.value.trim()||'';
-      const aiResult=await askAI(source,target.text,trialCode);
+      let aiResult;
+      try{aiResult=await askAI(source,target.text,trialCode);}finally{clearInterval(reviewTicker);}
       coverage=aiResult.coverage||null;
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
-      status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
+      const passInfo=' · تم '+String(aiResult.reviewPasses||2)+' مراحل AI'+(aiResult.reevaluatedFields?' · أُعيد تقييم '+String(aiResult.reevaluatedFields)+' خانة حساسة':'');
+      status((aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.')+passInfo);
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
   };
   q('#af-preview').onclick=async()=>{
