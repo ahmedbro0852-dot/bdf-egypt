@@ -149,8 +149,7 @@ function openAuthPanel(push=true,authError=''){
     try{
       if(mode==='signup'){
         const r=await signUp(email,password);
-        if(r.existing){msg.textContent='البريد ده عنده حساب بالفعل. حوّلنا لك وضع الدخول.';setMode('login');$('#auth-password').focus();return;}
-        if(r.needsConfirmation){msg.textContent='تم إنشاء الحساب. راجع رسالة التأكيد في بريدك.';return;}
+        if(r.existing&&!r.signedIn){msg.textContent='البريد ده عنده حساب بالفعل، لكن الباسورد مختلف. استخدم الباسورد القديم أو اضغط نسيت كلمة المرور.';setMode('login');$('#auth-password').focus();return;}
       }else{
         await signIn(email,password);
       }
