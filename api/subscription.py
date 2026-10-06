@@ -37,7 +37,7 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         number=os.getenv('SUPPORT_WHATSAPP','')
         if not number.isdigit() or not 8<=len(number)<=15:number=''
-        self.respond(200,{'plans':PLANS,'currency':'EGP','whatsapp':number,'ready':bool(os.getenv('LICENSE_SIGNING_SECRET') and os.getenv('SUBSCRIPTION_ADMIN_SECRET'))})
+        self.respond(200,{'plans':PLANS,'currency':'EGP','whatsapp':number,'ready':bool(os.getenv('LICENSE_SIGNING_SECRET') and os.getenv('SUBSCRIPTION_ADMIN_SECRET')),'freeLimits':{'files':5,'mb':25},'proLimits':{'files':40,'mb':100},'monthlyAiCredits':int(os.getenv('BDF_AI_MONTHLY_CREDITS','100'))})
     def do_POST(self):
         try:
             length=int(self.headers.get('Content-Length','0'))
