@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="BDF Egypt">
-  <rect width="96" height="96" rx="20" fill="#e5322d"/>
-  <path d="M27 20h31l11 11v45H27z" fill="#fff"/>
-  <path d="M58 20v13h11" fill="#ffd9d7"/>
-  <text x="48" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" font-weight="800" fill="#e5322d">BDF</text>
-  <rect x="36" y="65" width="24" height="4" rx="2" fill="#e5322d"/>
+  <rect width="96" height="96" rx="18" fill="#14213d"/>
+  <path d="M27 19h31l12 12v46H27z" fill="#fff"/>
+  <path d="M58 19v14h12" fill="#e8ecf5"/>
+  <text x="48" y="58" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" font-weight="800" fill="#e24a3b">BDF</text>
+  <rect x="35" y="65" width="26" height="4" rx="2" fill="#d5a63a"/>
 </svg>
