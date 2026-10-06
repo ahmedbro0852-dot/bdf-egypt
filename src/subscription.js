@@ -19,19 +19,18 @@ export function openPricing(push=true){
  const proFiles=Number(config.proLimits?.files)||40,proMb=Number(config.proLimits?.mb)||100,credits=Number(config.monthlyAiCredits)||100;
  const monthly=plans.find(p=>p.months===1)?.price||42;
  show('اختار الخطة المناسبة',`<div class="pricing-hero">
-   <div><span class="pricing-eyebrow">BDF EGYPT PRO</span><h3>اشتغل على ملفات أكتر وبأدوات أذكى</h3><p>المجاني مناسب للاستخدام الخفيف. Pro يفتح الحدود الأكبر والذكاء الاصطناعي والمعالجة بالدفعات.</p></div>
+   <div><span class="pricing-eyebrow">BDF EGYPT PRO</span><h3>23 أداة مجانية + 17 أداة Pro</h3><p>استخدم أغلب الأدوات مجانًا، وفعّل Pro للأدوات الأقوى والذكاء الاصطناعي والحدود الأكبر.</p></div>
    <div class="pro-highlight"><strong>${credits}</strong><span>كريدت AI / شهر</span></div>
  </div>
  <div class="tier-summary">
    <article class="tier-card free-tier"><span class="tier-kicker">FREE</span><h3>مجاني</h3><p>للمهام اليومية السريعة.</p><ul>
      <li>حتى ${freeFiles} ملفات في العملية</li><li>حتى ${freeMb} MB إجماليًا</li>
-     <li>أدوات PDF الأساسية والتحويل والتعديل</li><li>OCR محلي والحماية والتوقيع</li>
+     <li>23 أداة مجانية للدمج والتقسيم والتنظيم والتعديل</li><li>تحويل الصور وPDF وأدوات يومية بدون اشتراك</li>
    </ul><div class="tier-price"><strong>0 ج</strong><span>دائمًا</span></div></article>
    <article class="tier-card pro-tier"><span class="tier-kicker">PRO</span><span class="pro-crown">الأكثر قوة</span><h3>Pro</h3><p>للشغل الكثيف والمزايا الذكية.</p><ul>
      <li>حتى ${proFiles} ملفًا في العملية</li><li>حتى ${proMb} MB إجماليًا</li>
-     <li>${credits} كريدت AI شهريًا للتلخيص والترجمة</li>
-     <li>معالجة دفعات لعدة ملفات</li><li>حفظ واستعادة إعدادات الأدوات</li>
-     <li>الوصول لأدوات Pro المتقدمة عند توفر خدمتها</li>
+     <li>17 أداة Pro مميزة</li><li>${credits} كريدت AI شهريًا للتلخيص والترجمة</li>
+     <li>ضغط وتحويلات Office وOCR وحماية ومقارنة</li><li>معالجة دفعات + حفظ واستعادة الإعدادات</li>
    </ul><div class="tier-price"><strong>من ${Math.min(...plans.map(p=>p.price))} ج</strong><span>حسب المدة</span></div></article>
  </div>
  <h3 class="pricing-section-title">اختار مدة Pro</h3>
