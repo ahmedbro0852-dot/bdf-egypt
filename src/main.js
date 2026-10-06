@@ -3,7 +3,7 @@ import {createIcons,icons} from 'lucide';
 import {tools,categories} from './catalog.js';
 import {loadPdf} from './engine.js';
 import {initSubscriptions,hasPremium,membershipToken,premiumOptions,bindPremium,batchIds,openPricing,openAdmin} from './subscription.js';
-import {initAuth,currentUser,signIn,signUp,signInGoogle,signOut} from './auth.js';
+import {initAuth,currentUser,signIn,signUp,signInGoogle,signOut,googleEnabled} from './auth.js';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon=name=>`<i data-lucide="${name.replace(/([a-z0-9])([A-Z])/g,'$1-$2').toLowerCase()}"></i>`;
@@ -92,8 +92,9 @@ function openAuthPanel(push=true,authError=''){
     $('#logout-account').onclick=async()=>{await signOut();updateAccountButton();closeModal();};
     return;
   }
-  infoModal('تسجيل الدخول',`<div class="auth-shell"><button type="button" class="google-button" id="google-login"><span class="google-mark">G</span>المتابعة باستخدام Google</button><div class="auth-divider"><span>أو</span></div><form id="login-form" class="auth-form"><label>البريد الإلكتروني<input id="auth-email" type="email" required autocomplete="email" dir="ltr" placeholder="name@example.com"></label><label>كلمة المرور<input id="auth-password" type="password" required minlength="6" autocomplete="current-password" dir="ltr"></label><button class="primary auth-wide" type="submit">تسجيل الدخول</button><button class="secondary auth-wide" type="button" id="signup-account">إنشاء حساب جديد</button><p class="auth-message" id="auth-message" role="status">${authError?esc(authError):''}</p></form></div>`);
-  $('#google-login').onclick=()=>signInGoogle();
+  const googleReady=googleEnabled();
+  infoModal('تسجيل الدخول',`<div class="auth-shell"><button type="button" class="google-button" id="google-login" ${googleReady?'':'disabled'}><span class="google-mark">G</span>${googleReady?'المتابعة باستخدام Google':'Google غير مفعّل حاليًا'}</button>${googleReady?'':'<p class="auth-provider-note">استخدم البريد وكلمة المرور الآن. دخول Google سيتاح بمجرد تفعيل المزود.</p>'}<div class="auth-divider"><span>أو</span></div><form id="login-form" class="auth-form"><label>البريد الإلكتروني<input id="auth-email" type="email" required autocomplete="email" dir="ltr" placeholder="name@example.com"></label><label>كلمة المرور<input id="auth-password" type="password" required minlength="6" autocomplete="current-password" dir="ltr"></label><button class="primary auth-wide" type="submit">تسجيل الدخول</button><button class="secondary auth-wide" type="button" id="signup-account">إنشاء حساب جديد</button><p class="auth-message" id="auth-message" role="status">${authError?esc(authError):''}</p></form></div>`);
+  $('#google-login').onclick=async()=>{const msg=$('#auth-message');try{await signInGoogle();}catch(err){if(msg)msg.textContent=err.message;}};
   $('#login-form').onsubmit=async e=>{e.preventDefault();const msg=$('#auth-message'),btn=e.submitter;btn.disabled=true;msg.textContent='جارٍ تسجيل الدخول...';try{await signIn($('#auth-email').value.trim(),$('#auth-password').value);updateAccountButton();openAuthPanel(false);}catch(err){msg.textContent=err.message;}finally{btn.disabled=false;}};
   $('#signup-account').onclick=async()=>{const email=$('#auth-email').value.trim(),password=$('#auth-password').value,msg=$('#auth-message');if(!email||password.length<6){msg.textContent='اكتب بريدًا صحيحًا وكلمة مرور 6 أحرف على الأقل.';return;}msg.textContent='جارٍ إنشاء الحساب...';try{const r=await signUp(email,password);if(r.needsConfirmation)msg.textContent='تم إنشاء الحساب. افتح رسالة التأكيد في بريدك ثم سجّل الدخول.';else{updateAccountButton();openAuthPanel(false);}}catch(err){msg.textContent=err.message;}};
 }
