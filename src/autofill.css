@@ -16,3 +16,5 @@
 .af-trial{min-width:170px;height:38px;border:1px solid #d7e0eb;border-radius:9px;padding:0 10px;outline:none}
 .af-trial:focus{border-color:#6d93d3;box-shadow:0 0 0 3px rgba(76,120,190,.12)}
 @media(max-width:760px){.af-trial-wrap{width:100%;display:grid}.af-trial{width:100%}}
+
+.af-credit-badge{display:inline-flex;align-items:center;min-height:38px;padding:0 11px;border-radius:999px;background:#eef8f0;color:#20713a;font-size:11px;font-weight:900;border:1px solid #cfe8d5}
