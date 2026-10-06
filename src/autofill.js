@@ -79,7 +79,6 @@ async function officeText(file){
   return '';
 }
 async function imageText(file,setStatus){
-  const {createWorker}=await import('tesseract.js');
   let worker;
   try{
     worker=await createWorker('ara+eng',1,{workerPath:'/ocr/worker.min.js',corePath:'/ocr/core',langPath:'/ocr/lang',logger:m=>{if(m.status==='recognizing text')setStatus('OCR '+Math.round((m.progress||0)*100)+'%')}});
