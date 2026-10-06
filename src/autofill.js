@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PDFDocument } from 'pdf-lib';
-import { membershipToken, hasPremium, openPricing } from './subscription.js';
+import { membershipToken, hasPremium, hasAiPack, aiPackToken } from './subscription.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;
 const E=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -101,10 +101,11 @@ async function readTarget(file){
 }
 async function askAI(source,target,trialCode=''){
   const code=String(trialCode||'').trim();
-  if(!hasPremium()&&!code)throw Error('اكتب كود التجربة أو فعّل اشتراك Pro.');
+  if(!hasPremium()&&!hasAiPack()&&!code)throw Error('فعّل رصيد ملفات AI أو اكتب كود التجربة.');
   const headers={'Content-Type':'application/json'};
   if(hasPremium())headers.Authorization='Bearer '+membershipToken();
-  const r=await fetch('/api/advanced',{method:'POST',headers,body:JSON.stringify({action:'autofill',sourceText:source.slice(0,80000),targetText:target.slice(0,40000),trialCode:hasPremium()?'':code})});
+  else if(hasAiPack())headers.Authorization='Bearer '+aiPackToken();
+  const r=await fetch('/api/advanced',{method:'POST',headers,body:JSON.stringify({action:'autofill',sourceText:source.slice(0,80000),targetText:target.slice(0,40000),trialCode:(hasPremium()||hasAiPack())?'':code})});
   const d=await r.json().catch(()=>({}));
   if(!r.ok)throw Error(d.error||'تعذر تحليل الملفين.');
   return d;
@@ -357,7 +358,7 @@ export function openAutofill(ctx){
     '<div class="af-body"><div class="af-upload-grid">'+
     '<section class="af-box"><b>1</b><h3>ملف البيانات</h3><p>PDF · Word · Excel · CSV · JSON · PowerPoint · صور</p><button class="primary" id="af-data-btn" type="button">'+icon('Upload')+'رفع ملف البيانات</button><input id="af-data" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx,.xls,.pptx,.png,.jpg,.jpeg,.webp" hidden><small id="af-data-name">لم يتم اختيار ملف</small></section>'+
     '<section class="af-box"><b>2</b><h3>النموذج المطلوب تعبئته</h3><p>Word DOCX · PDF Form · TXT/Markdown</p><button class="primary" id="af-target-btn" type="button">'+icon('FileUp')+'رفع النموذج</button><input id="af-target" type="file" accept=".docx,.pdf,.txt,.md" hidden><small id="af-target-name">لم يتم اختيار ملف</small></section></div>'+
-    '<div class="af-action">'+(!hasPremium()?'<label class="af-trial-wrap"><span>عندك كود تجربة؟</span><input id="af-trial" class="af-trial" type="password" autocomplete="off" placeholder="اكتب كود التجربة"></label>':'')+'<button class="primary" id="af-analyze" disabled>'+icon('Sparkles')+'فهم الملفين وتوزيع البيانات تلقائيًا</button><span id="af-status"></span></div>'+
+    '<div class="af-action">'+(!hasPremium()&&!hasAiPack()?'<label class="af-trial-wrap"><span>عندك كود تجربة؟</span><input id="af-trial" class="af-trial" type="password" autocomplete="off" placeholder="اكتب كود التجربة"></label>':'')+(hasAiPack()?'<span class="af-credit-badge">رصيد ملفات AI مفعّل</span>':'')+'<button class="primary" id="af-analyze" disabled>'+icon('Sparkles')+'فهم الملفين وتوزيع البيانات تلقائيًا</button><span id="af-status"></span></div>'+
     '<div id="af-review" hidden><div class="af-stats" id="af-stats"></div><div class="af-head"><div><h3>راجع القيمة ومكانها وتنسيقها</h3><p>القيم غير المثبتة من المصدر لا تتفعل تلقائيًا.</p></div><button class="secondary" id="af-preview">'+icon('Eye')+'معاينة</button></div><div id="af-fields" class="af-fields"></div>'+
     '<div class="af-preview-wrap"><div class="af-preview-head"><strong>المعاينة داخل BDF Egypt</strong><span id="af-preview-note"></span></div><div id="af-preview-box" class="af-preview"><div class="af-empty">اضغط معاينة قبل التنزيل.</div></div></div>'+
     '<div class="af-export"><label>صيغة التحميل<select id="af-format"><option value="same">نفس صيغة النموذج</option><option value="pdf">PDF</option><option value="docx">Word DOCX</option><option value="txt">TXT</option><option value="json">JSON</option><option value="csv">CSV</option></select></label><button class="primary" id="af-download">'+icon('Download')+'تنزيل الملف النهائي</button></div></div><div class="error" id="af-error" hidden></div></div></section></div>';
@@ -396,7 +397,7 @@ export function openAutofill(ctx){
       const aiResult=await askAI(source,target.text,trialCode);
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       filled=await build();placements=filled.placements||[];q('#af-review').hidden=false;render();
-      status(aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من 3 تجارب.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
+      status(aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من 3 تجارب.':'تم التحليل. راجع البيانات ثم اعرض المعاينة.');
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
   };
   q('#af-preview').onclick=async()=>{
