@@ -37,6 +37,9 @@ def validate_mapping(parsed, source, target):
             raise ValueError('الخانة غير موجودة في النموذج: ' + label)
         if value and (not quote or normalized(quote) not in normalized(source)):
             raise ValueError('مقتطف المصدر غير مثبت للخانة: ' + label)
+        digit_map=str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹','01234567890123456789')
+        if value and normalized(value).translate(digit_map) not in normalized(quote).translate(digit_map):
+            raise ValueError('مقتطف المصدر لا يثبت قيمة الخانة: '+label)
         try:
             confidence = float(item.get('confidence', 0))
         except (ValueError, TypeError):

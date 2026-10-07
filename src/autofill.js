@@ -173,6 +173,7 @@ function sourceEvidence(value,quote,source){
     return false;
   };
   const nv=clean(value),ns=clean(source);
+  if(quote&&!contains(latinDigits(clean(quote)).toLowerCase(),latinDigits(nv).toLowerCase()))return {ok:false,score:.35,type:'مقتطف المصدر لا يثبت القيمة'};
   if(contains(ns,nv))return {ok:true,score:1,type:'مطابقة حرفية'};
   if(contains(latinDigits(ns).toLowerCase(),latinDigits(nv).toLowerCase()))return {ok:true,score:.96,type:'مطابقة بعد توحيد الأرقام'};
   return {ok:false,score:.35,type:'غير مثبت بوضوح'};
@@ -794,7 +795,7 @@ export function openAutofill(ctx){
     }).join('');
     q('#af-fields').querySelectorAll('[data-location]').forEach(x=>x.onchange=()=>{fields[Number(x.dataset.location)].manualLocation=x.value;markEdited();status('تم اختيار الخانة. اضغط معاينة لفحص الكتابة.');});
     q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;markEdited();x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
-    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>{x.onchange=()=>render();x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;markEdited();const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&!f.conflict&&ev.score>=.96;const idx=requiredMappings.findIndex(m=>m.label===f.label);if(f.enabled){const next={label:f.label,value:auditToken(f.value)};if(idx>=0)requiredMappings[idx]=next;else requiredMappings.push(next);}};});
+    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>{x.onchange=()=>render();x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;markEdited();const ev=sourceEvidence(f.value,'',source);if(ev.ok)f.source_hint=f.value;f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&!f.conflict&&ev.score>=.96;const idx=requiredMappings.findIndex(m=>m.label===f.label);if(f.enabled){const next={label:f.label,value:auditToken(f.value)};if(idx>=0)requiredMappings[idx]=next;else requiredMappings.push(next);}};});
     renderAudit();
   }
   q('#af-analyze').onclick=async()=>{
