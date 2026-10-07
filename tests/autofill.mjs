@@ -35,3 +35,18 @@ assert.equal(fillText('الاسم:\nالاسم:',[field('الاسم','أحمد')
 const conflicts=verify([{...field('الاسم','أحمد'),confidence:1},{...field('الاسم','محمد'),confidence:1}],'أحمد محمد');assert(conflicts.every(x=>!x.enabled));
 await assert.rejects(askAI('a'.repeat(80001),'الاسم'),/٨٠ ألف/);
 console.log('PASS: Word properties, identical cells, ambiguous/manual destinations, numeric evidence, text fields, conflicts and input limits');
+
+// Regression: the uploaded scattered source and 22-row target form.
+const fixture=JSON.parse(await fs.readFile(new URL('./fixtures/scattered-transfer.json',import.meta.url),'utf8'));
+const proven=fixture.fields.map(f=>({...f,source_hint:fixture.source.split('\n').find(line=>sourceEvidence(f.value,'',line).ok)}));
+assert(verify(proven,fixture.source).every(f=>f.enabled));
+assert.equal(sourceEvidence('أحمد','اقتباس مخترع أحمد','أحمد').ok,false);
+const template=await fs.readFile(new URL('../../upload/02_نموذج_فارغ_للتعبئة(1).docx',import.meta.url)).catch(()=>null);
+if(template){
+ const filled=await fillDocx(new File([template],'uploaded.docx'),proven.map(f=>({...f,enabled:true})));
+ assert.equal(filled.placements.length,22);
+ assert(filled.placements.every(p=>p.confidence>=.9));
+ const actual=await (await JSZip.loadAsync(await filled.blob.arrayBuffer())).file('word/document.xml').async('text');
+ for(const f of proven)assert(actual.includes(f.value),'missing '+f.label);
+ console.log('PASS: actual uploaded Word template filled with all 22 verified values');
+}

@@ -173,6 +173,7 @@ function sourceEvidence(value,quote,source){
     return false;
   };
   const nv=clean(value),ns=clean(source);
+  if(quote&&!contains(latinDigits(ns).toLowerCase(),latinDigits(clean(quote)).toLowerCase()))return {ok:false,score:.35,type:'المقتطف غير موجود في المصدر'};
   if(quote&&!contains(latinDigits(clean(quote)).toLowerCase(),latinDigits(nv).toLowerCase()))return {ok:false,score:.35,type:'مقتطف المصدر لا يثبت القيمة'};
   if(contains(ns,nv))return {ok:true,score:1,type:'مطابقة حرفية'};
   if(contains(latinDigits(ns).toLowerCase(),latinDigits(nv).toLowerCase()))return {ok:true,score:.96,type:'مطابقة بعد توحيد الأرقام'};
