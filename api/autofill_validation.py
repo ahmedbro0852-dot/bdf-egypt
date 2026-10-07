@@ -1,9 +1,34 @@
 """Validate an AI mapping without silently dropping fields or shortening values."""
 import math
 import unicodedata
+import re
 
 def normalized(value):
     return ' '.join(unicodedata.normalize('NFKC', str(value)).casefold().split())
+
+def evidence_token(value):
+    return normalized(value).translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹','01234567890123456789'))
+
+def evidence_contains(text, value):
+    hay, needle = evidence_token(text), evidence_token(value)
+    if not needle:
+        return False
+    return re.search(r'(?<!\w)' + re.escape(needle) + r'(?!\w)', hay) is not None
+
+def source_quote(value, proposed, source):
+    """Bind literal values to real source text; never trust a model-written quote."""
+    if not evidence_contains(source, value):
+        raise ValueError('القيمة غير مثبتة في المصدر.')
+    if proposed and evidence_contains(source, proposed) and evidence_contains(proposed, value):
+        return proposed
+    # A paraphrased/omitted hint must not invalidate an independently proven value.
+    for line in source.splitlines():
+        if evidence_contains(line, value):
+            return line.strip()
+    # Multi-line literal values retain their original paragraph context.
+    hay, needle = evidence_token(source), evidence_token(value)
+    match = re.search(r'(?<!\w)' + re.escape(needle) + r'(?!\w)', hay)
+    return hay[match.start():match.end()]
 
 def validate_mapping(parsed, source, target):
     if not isinstance(parsed, dict):
@@ -35,11 +60,11 @@ def validate_mapping(parsed, source, target):
         seen.add(identity)
         if normalized(anchor) not in normalized(target):
             raise ValueError('الخانة غير موجودة في النموذج: ' + label)
-        if value and (not quote or normalized(quote) not in normalized(source)):
-            raise ValueError('مقتطف المصدر غير مثبت للخانة: ' + label)
-        digit_map=str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹','01234567890123456789')
-        if value and normalized(value).translate(digit_map) not in normalized(quote).translate(digit_map):
-            raise ValueError('مقتطف المصدر لا يثبت قيمة الخانة: '+label)
+        if value:
+            try:
+                quote = source_quote(value, quote, source)
+            except ValueError:
+                raise ValueError('القيمة غير مثبتة في المصدر للخانة: ' + label)
         try:
             confidence = float(item.get('confidence', 0))
         except (ValueError, TypeError):
