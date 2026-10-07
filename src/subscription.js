@@ -6,7 +6,7 @@ let membership=null,token='',aiPack=null,aiToken='',config={ready:false,whatsapp
 export const batchIds=['compress','rotate','watermark','numbers','grayscale','text'];
 export function hasPremium(){return !!membership&&membership.expires*1000>Date.now();}
 export function membershipToken(){return hasPremium()?token:'';}
-export function hasAiPack(){return !!aiPack&&aiPack.kind==='ai_files'&&[100,500,1000].includes(Number(aiPack.files));}
+export function hasAiPack(){return !!aiPack&&aiPack.kind==='ai_files'&&[10,100,500,1000].includes(Number(aiPack.files))&&(!aiPack.expires||aiPack.expires*1000>Date.now());}
 export function aiPackToken(){return hasAiPack()?aiToken:'';}
 export function aiPackInfo(){return hasAiPack()?aiPack:null;}
 export function hasProAccess(){return hasPremium()||hasAiPack();}

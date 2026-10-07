@@ -17,7 +17,8 @@ def verify_license(token):
         payload=json.loads(base64.urlsafe_b64decode(body+'='*(-len(body)%4)))
         if payload.get('version')!=1: raise ValueError()
         if payload.get('kind')=='ai_files':
-            if payload.get('files') not in (100,500,1000): raise ValueError()
+            if payload.get('files') not in (10,100,500,1000): raise ValueError()
+            if 'expires' in payload and payload.get('expires',0)<=time.time(): raise ValueError()
             return payload
         if payload.get('months') not in (1,3,6,12) or payload.get('expires',0)<=time.time(): raise ValueError()
         payload['kind']='pro'

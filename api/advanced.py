@@ -46,7 +46,7 @@ def file_credit_call(payload, consume=0):
     key=os.getenv('SUPABASE_ANON_KEY','')
     secret=os.getenv('BDF_CREDIT_RPC_SECRET','')
     total=int(payload.get('files',0) or 0)
-    if total not in (100,500,1000):
+    if total not in (10,100,500,1000):
         raise ValueError('باقة ملفات AI غير صحيحة.')
     if not url or not key or not secret:
         raise RuntimeError('file credit service unavailable')
