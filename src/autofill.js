@@ -635,21 +635,22 @@ async function validateDocxOutput(blob,fields,originalFile,placements=[]){
       if(added>g.expected)extra.push(g);
     }
 
-    const wrongLocations=[];
-    for(const f of active){const loc=placements.find(p=>p.label===f.label)?.location;if(!loc){wrongLocations.push(f.label);continue;}const part=zip.file(loc.partName);if(!part){wrongLocations.push(f.label);continue;}const xml=await part.async('text');let block='';if(loc.kind==='table'){const row=(xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[])[loc.rowIndex]||'';block=(row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[])[loc.targetIndex]||'';}else if(loc.kind==='sdt'){block=(xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[])[loc.index]||'';}else block=(xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[])[loc.pIndex]||'';if(!auditToken(visible(block)).includes(auditToken(f.value)))wrongLocations.push(f.label);}
+    const wrongLocations=[],usedLocations=new Set();
+    for(const f of active){const loc=placements.find(p=>p.label===f.label)?.location;if(!loc){wrongLocations.push(f.label);continue;}const part=zip.file(loc.partName);if(!part){wrongLocations.push(f.label);continue;}const xml=await part.async('text');let block='';if(loc.kind==='table'){const row=(xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[])[loc.rowIndex]||'';block=(row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[])[loc.targetIndex]||'';}else if(loc.kind==='sdt'){block=(xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[])[loc.index]||'';}else block=(xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[])[loc.pIndex]||'';const locationKey=JSON.stringify(loc);if(usedLocations.has(locationKey)||!sourceEvidence(f.value,'',visible(block)).ok)wrongLocations.push(f.label);usedLocations.add(locationKey);}
     const successfulPlacements=placements.filter(p=>Number(p.confidence||0)>0&&!String(p.where||'').startsWith('لم')).length;
     const placementMissing=Math.max(0,active.length-successfulPlacements);
     const lowEvidence=active.filter(f=>Number(f.evidenceScore||0)<.95);
     const conflicts=fields.filter(f=>f.conflict);
     const warnings=[];
-    if(extra.length)warnings.push('تم رصد قيمة مكررة أكثر من العدد المتوقع في الملف النهائي.');
+    if(extra.length)warnings.push('قد تتكرر كلمات أو أرقام بين خانات مختلفة؛ تم فحص كل قيمة داخل خانتها المحددة.');
     if(lowEvidence.length)warnings.push('بعض القيم ثبتت بعد توحيد تنسيق الأرقام/المسافات وليست مطابقة حرفية.');
     if(conflicts.length)warnings.push('تم إيقاف تعارضات ربط بين أكثر من قيمة ونفس الخانة.');
     if(!structuralOk)warnings.push('بنية ملف Word النهائية غير سليمة.');
 
     if(placementMissing)warnings.push('توجد خانات لم يتم تأكيد الكتابة داخل مكانها؛ التنزيل متوقف.');
     if(wrongLocations.length)warnings.push('قيمة غير موجودة في خانتها المحددة: '+wrongLocations.join('، '));
-    const hardIssues=missing.length+wrongLocations.length+extra.length+placementMissing+(structuralOk?0:1);
+    // Global counts overlap (15 users vs 15 October); exact destination checks are authoritative.
+    const hardIssues=wrongLocations.length+placementMissing+(structuralOk?0:1);
     const score=Math.max(0,100-hardIssues*30-extra.length*4-lowEvidence.length*2-placementMissing*2);
     return {
       ok:hardIssues===0,
@@ -746,7 +747,8 @@ export function openAutofill(ctx){
         const details=[
           audit.missing?.length?('القيم غير الموجودة في الملف النهائي: '+audit.missing.map(x=>x.fields.join('/')).join('، ')):'',
           !audit.structuralOk?'بنية ملف Word غير سليمة':'',
-          audit.wrongLocations?.length?'راجع أماكن الخانات: '+audit.wrongLocations.join('، '):''
+          audit.wrongLocations?.length?'راجع أماكن الخانات: '+audit.wrongLocations.join('، '):'',
+          audit.placementMissing?'خانات لم تكتب: '+placements.filter(p=>!p.location).map(p=>p.label).join('، '):''
         ].filter(Boolean).join(' · ');
         throw Error('تعذر إنشاء Word سليم وآمن للتنزيل.'+(details?' '+details:''));
       }

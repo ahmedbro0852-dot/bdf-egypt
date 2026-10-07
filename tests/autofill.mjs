@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import JSZip from 'jszip';
+import {DOMParser as XMLParser} from '@xmldom/xmldom';
+class DOMParser { parseFromString(xml,type){const doc=new XMLParser({onError:()=>{throw Error('invalid XML')}}).parseFromString(xml,type);return {querySelector:tag=>doc.getElementsByTagName(tag)[0]||null};} }
 import {PDFDocument} from 'pdf-lib';
 // Run the actual transfer functions in isolation from UI-only imports.
 const source=await fs.readFile(new URL('../src/autofill.js',import.meta.url),'utf8');
-const context=vm.createContext({JSZip,PDFDocument,Blob,File,URL,console});
-vm.runInContext(source.slice(source.indexOf('const E='),source.indexOf('async function previewDocx'))+'\nglobalThis.transfer={fillDocx,fillText,sourceEvidence,verify,askAI};',context);
-const {fillDocx,fillText,sourceEvidence,verify,askAI}=context.transfer;
+const context=vm.createContext({JSZip,PDFDocument,Blob,File,URL,console,DOMParser});
+vm.runInContext(source.slice(source.indexOf('const E='),source.indexOf('async function previewDocx'))+'\nglobalThis.transfer={fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput};',context);
+const {fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput}=context.transfer;
 const para=t=>`<w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
 const cell=t=>`<w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/></w:tcPr>${para(t)}</w:tc>`;
 const row=cells=>`<w:tr><w:trPr><w:cantSplit/></w:trPr>${cells.join('')}</w:tr>`;
@@ -41,9 +43,14 @@ const fixture=JSON.parse(await fs.readFile(new URL('./fixtures/scattered-transfe
 const proven=fixture.fields.map(f=>({...f,source_hint:fixture.source.split('\n').find(line=>sourceEvidence(f.value,'',line).ok)}));
 assert(verify(proven,fixture.source).every(f=>f.enabled));
 assert.equal(sourceEvidence('أحمد','اقتباس مخترع أحمد','أحمد').ok,false);
-const template=await fs.readFile(new URL('../../upload/02_نموذج_فارغ_للتعبئة(1).docx',import.meta.url)).catch(()=>null);
+const template=await fs.readFile(new URL('../../upload/02_نموذج_فارغ_للتعبئة(1).docx',import.meta.url)).catch(async()=>await (await file('<w:tbl>'+row([cell('م'),cell('الحقل المطلوب'),cell('القيمة المستخرجة')])+fixture.fields.map((f,i)=>row([cell(String(i+1)),cell(f.label),cell('____________________________')])).join('')+'</w:tbl>')).arrayBuffer());
 if(template){
  const filled=await fillDocx(new File([template],'uploaded.docx'),proven.map(f=>({...f,enabled:true})));
+ const checked=verify(proven,fixture.source);
+ const audit=await validateDocxOutput(filled.blob,checked,new File([template],'uploaded.docx'),filled.placements);
+ assert(audit.ok,JSON.stringify(audit));
+ const incorrect=filled.placements.map(p=>({...p,location:{...p.location,targetIndex:0}}));
+ assert.equal((await validateDocxOutput(filled.blob,checked,new File([template],'uploaded.docx'),incorrect)).ok,false);
  assert.equal(filled.placements.length,22);
  assert(filled.placements.every(p=>p.confidence>=.9));
  const actual=await (await JSZip.loadAsync(await filled.blob.arrayBuffer())).file('word/document.xml').async('text');
