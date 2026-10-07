@@ -19,6 +19,8 @@ async function request(data,admin){const res=await fetch('/api/subscription',{me
 
 export async function initSubscriptions(modal,toast){
  show=modal;notify=toast;document.querySelector('#pricing').onclick=()=>openPricing();
+ const activation=new URLSearchParams(location.hash.slice(1)).get('activate-ai');
+ if(activation)history.replaceState({},'',location.pathname+location.search);
  try{
   const response=await fetch('/api/subscription',{cache:'no-store'});
   if(response.ok){
@@ -32,6 +34,14 @@ export async function initSubscriptions(modal,toast){
  const savedAi=readStored('bdf:ai-pack');
  if(savedAi)try{const r=await request({action:'verify_ai',token:savedAi});aiToken=savedAi;aiPack=r.aiPack;}catch(e){if(e.status===400)saveStored('bdf:ai-pack','');}
  updateBadge();
+ if(activation){
+  try{
+   if(activation.length>8192)throw Error('رابط التفعيل غير صالح.');
+   const r=await request({action:'verify_ai',token:activation});
+   aiToken=activation;aiPack=r.aiPack;saveStored('bdf:ai-pack',activation);updateBadge();
+   notify('تم تفعيل Pro AI برصيد '+aiPack.files+' نقطة.');
+  }catch(e){notify(e.message||'تعذر تفعيل الكود.');}
+ }
  if(location.pathname==='/pricing')openPricing(false);
  if(location.pathname==='/admin')openAdmin();
 }
