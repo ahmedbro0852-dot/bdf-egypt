@@ -145,7 +145,7 @@ async function askAI(source,target,trialCode=''){
   if(!hasAiPack()&&!code)throw Error('فعّل Pro AI أو اكتب كود التجربة.');
   const headers={'Content-Type':'application/json'};
   if(hasAiPack())headers.Authorization='Bearer '+aiPackToken();
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),210000);
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),285000);
   let r;
   try{r=await fetch('/api/advanced',{method:'POST',headers,signal:controller.signal,body:JSON.stringify({action:'autofill',sourceText:source,targetText:target,trialCode:hasAiPack()?'':code})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة التحليل. راجع الرصيد قبل إعادة المحاولة؛ قد يكون الخادم أكمل الطلب.');throw e;}finally{clearTimeout(timeout);}
   const d=await r.json().catch(()=>({}));

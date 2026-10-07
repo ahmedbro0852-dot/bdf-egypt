@@ -4,6 +4,7 @@ from urllib.error import HTTPError
 import os, json
 from api.subscription import verify_license
 from api.autofill_validation import validate_mapping
+from api.ai_review import request_review, ReviewFailure, review_message
 
 def credit_call(payload, consume=0):
     url=os.getenv('SUPABASE_URL','').rstrip('/')
@@ -280,26 +281,16 @@ class handler(BaseHTTPRequestHandler):
                         {'role':'user','content':verifier_user}
                     ]
                 }
-                verifier_req=Request(
-                    base+'/chat/completions',
-                    data=json.dumps(verifier_request).encode(),
-                    headers={'Content-Type':'application/json','Authorization':'Bearer '+key}
-                )
                 try:
-                    with urlopen(verifier_req,timeout=65) as response:
-                        verifier_result=json.load(response)
-                    verifier_raw=verifier_result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
-                    if verifier_result.get('choices',[{}])[0].get('finish_reason')=='length':
-                        raise ValueError('incomplete response')
-                    vstart=verifier_raw.find('{')
-                    vend=verifier_raw.rfind('}')
-                    verified=json.loads(verifier_raw[vstart:vend+1] if vstart>=0 and vend>vstart else verifier_raw)
-                except Exception:
+                    verified=request_review(base,key,verifier_request)
+                except ReviewFailure as err:
+                    refunded=False
                     try:
                         trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
+                        refunded=True
                     except Exception:
-                        pass
-                    return self.respond(502,{'error':'فشل التدقيق النهائي؛ لم يتم اعتماد النقل ولم تُحسب المحاولة.'})
+                        print(json.dumps({'event':'autofill_refund_failed','stage':'review'}),flush=True)
+                    return self.respond(502,{'error':review_message(err.code)+(' لم تُحسب المحاولة.' if refunded else ' تعذر تأكيد استرجاع الكريدت؛ راجع الإدارة.'),'code':err.code,'stage':'final_review'})
 
                 # مرور ثالث انتقائي: لا نضيف تكلفة/زمن إلا عند وجود اختلاف أو ثقة منخفضة.
                 first_fields=parsed.get('fields',[]) if isinstance(parsed,dict) and isinstance(parsed.get('fields',[]),list) else []
