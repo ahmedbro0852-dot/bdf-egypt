@@ -1,6 +1,7 @@
 """Bounded recovery for provider transport and malformed review responses."""
 import json
 import socket
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -9,7 +10,7 @@ class ReviewFailure(Exception):
         self.code = code
         super().__init__(code)
 
-def parse_review(result):
+def parse_review(result, require_coverage=True):
     choices = result.get('choices') if isinstance(result, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise ReviewFailure('empty_response')
@@ -30,23 +31,29 @@ def parse_review(result):
         parsed = json.loads(raw)
     except (ValueError, TypeError):
         raise ReviewFailure('invalid_json')
-    if not isinstance(parsed, dict) or not isinstance(parsed.get('fields'), list) or not parsed['fields'] or not isinstance(parsed.get('coverage'), dict):
+    if not isinstance(parsed, dict) or not isinstance(parsed.get('fields'), list) or not parsed['fields'] or (require_coverage and not isinstance(parsed.get('coverage'), dict)):
         raise ReviewFailure('invalid_schema')
     return parsed
 
-def request_review(base, key, payload, opener=None):
+def parse_candidates(result):
+    return parse_review(result, require_coverage=False)
+
+def request_review(base, key, payload, opener=None, parser=parse_review, retry_instruction=None, deadline=None):
     opener = opener or urlopen
     last = None
     for attempt, timeout in enumerate((60, 45)):
+        if deadline is not None:
+            timeout=min(timeout,deadline-time.monotonic())
+            if timeout<2:raise ReviewFailure('provider_timeout')
         body = dict(payload)
         if attempt:
             body['max_tokens'] = max(body.get('max_tokens', 0), 11000)
-            body['messages'] = [*payload['messages'], {'role':'user', 'content':'أعد JSON صالحًا كاملًا فقط دون شرح أو markdown، مع fields وcoverage. لا تحذف أي خانة.'}]
+            body['messages'] = [*payload['messages'], {'role':'user', 'content':retry_instruction or 'أعد JSON صالحًا كاملًا فقط دون شرح أو markdown، مع fields وcoverage. لا تحذف أي خانة.'}]
         req = Request(base+'/chat/completions', data=json.dumps(body).encode(), headers={'Content-Type':'application/json','Authorization':'Bearer '+key})
         try:
             with opener(req, timeout=timeout) as response:
                 result = json.load(response)
-            return parse_review(result)
+            return parser(result)
         except HTTPError as err:
             code = 'provider_auth' if err.code in (401,403) else ('provider_rate_limit' if err.code==429 else 'provider_http')
             last = ReviewFailure(code)

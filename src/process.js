@@ -6,7 +6,7 @@ import { loadPdf,mergeFiles,selectPages,pageRange,rotatePages,numberPages,safeNa
 pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;
 export async function readVisual(file,password){return pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/',wasmUrl:'/wasm/'}).promise;}
 export async function renderPage(doc,index,scale=1.5){const p=await doc.getPage(index+1);const v=p.getViewport({scale});const c=document.createElement('canvas');c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext('2d'),viewport:v}).promise;return c;}
-async function extractText(file){const d=await readVisual(file);try{const pages=[];for(let i=1;i<=d.numPages;i++){const content=await(await d.getPage(i)).getTextContent();let lines=[],line='';for(const item of content.items){line+=item.str+' ';if(item.hasEOL){lines.push(line.trim());line='';}}if(line.trim())lines.push(line.trim());pages.push(lines.join('\n'));}return pages;}finally{await d.destroy();}}
+async function extractText(file,requireComplete=false){const d=await readVisual(file);try{const pages=[];for(let i=1;i<=d.numPages;i++){const content=await(await d.getPage(i)).getTextContent();let lines=[],line='';for(const item of content.items){line+=item.str+' ';if(item.hasEOL){lines.push(line.trim());line='';}}if(line.trim())lines.push(line.trim());const pageText=lines.join('\n');if(requireComplete&&!pageText.trim()){const ops=await(await d.getPage(i)).getOperatorList();if(ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageXObjectRepeat].includes(op)))throw Error('الصفحة '+i+' صورة بلا نص قابل للقراءة. استخدم OCR أولًا حتى لا تتسقط بياناتها.');}pages.push(pageText);}return pages;}finally{await d.destroy();}}
 const pdfResult=async(d,name='BDF-Egypt.pdf')=>[{data:await d.save(),name,type:'application/pdf'}];
 const canvasBlob=(c,type='image/jpeg',quality=.85)=>new Promise(resolve=>c.toBlob(resolve,type,quality));
 async function stampText(doc,text,opts={}){const c=document.createElement('canvas');const ctx=c.getContext('2d');c.width=1600;c.height=160;ctx.font='bold 64px Arial';ctx.textAlign='center';ctx.fillStyle=opts.color||'#087d75';ctx.direction='rtl';ctx.fillText(text,c.width/2,105);const im=await doc.embedPng(await(await canvasBlob(c,'image/png')).arrayBuffer());for(const p of doc.getPages()){const w=Math.min(p.getWidth()*.75,500),h=w*.1;p.drawImage(im,{x:(p.getWidth()-w)/2,y:opts.y??p.getHeight()/2,width:w,height:h,opacity:opts.opacity??.25});}}
@@ -47,10 +47,13 @@ return pdfResult(doc,base+'-'+id+'.pdf');
 export const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 export async function advanced(action,file,o){
- if(file.size>2.8*1024*1024)throw Error('حد الخدمة المتقدمة 2.8 MB.');
+ if(!['summarize','translate'].includes(action)&&file.size>2.8*1024*1024)throw Error('حد الخدمة المتقدمة 2.8 MB.');
+ if(file.size>100*1024*1024)throw Error('حد الملف ١٠٠ MB.');
  let content;const isAI=['summarize','translate'].includes(action); // Pro AI only; token gating is enforced server-side.
- if(isAI){content=(await extractText(file)).join('\n\n');if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
+ if(isAI){content=(await extractText(file,true)).join('\n\n');if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
  else{const b=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<b.length;i+=8192)raw+=String.fromCharCode(...b.subarray(i,i+8192));content=btoa(raw);}
- const response=await fetch('/api/advanced',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),285000);
+ let response;try{response=await fetch('/api/advanced',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة المعالجة؛ راجع الرصيد قبل إعادة المحاولة.');throw e;}finally{clearTimeout(timer);}
+ const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
  return isAI?[{data:data.text,name:'BDF-Egypt-'+action+'.txt',type:'text/plain;charset=utf-8',preview:data.text}]:[{data:Uint8Array.from(atob(data.file),c=>c.charCodeAt(0)),name:'BDF-Egypt-'+action+'.pdf',type:'application/pdf'}];
 }
