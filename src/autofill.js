@@ -96,6 +96,17 @@ async function readSource(file,setStatus){
   if(['txt','md','json'].includes(e))return file.text();
   throw Error('صيغة ملف البيانات غير مدعومة.');
 }
+export async function readAiDocument(file,setStatus=()=>{}){
+  return readSource(file,setStatus);
+}
+export async function aiDocumentOutput(text){
+  const paragraphs=String(text).split(/\r?\n/).map(line=>new DOCX.Paragraph({
+    bidirectional:/[\u0600-\u06ff]/.test(line),
+    alignment:/[\u0600-\u06ff]/.test(line)?DOCX.AlignmentType.RIGHT:DOCX.AlignmentType.LEFT,
+    spacing:{after:120},children:[new DOCX.TextRun({text:line,font:'Arial',size:26})]
+  }));
+  return DOCX.Packer.toBlob(new DOCX.Document({sections:[{children:paragraphs}]}));
+}
 async function docxStructure(file){
   const z=await JSZip.loadAsync(await file.arrayBuffer());
   const parts=Object.keys(z.files).filter(n=>/^word\/(document|header\d+|footer\d+)\.xml$/.test(n)).sort();

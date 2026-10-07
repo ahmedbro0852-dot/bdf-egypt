@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import JSZip from 'jszip';
+import {readAiDocument,aiDocumentOutput} from './autofill.js';
 import { loadPdf,mergeFiles,selectPages,pageRange,rotatePages,numberPages,safeName } from './engine.js';
 pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;
 export async function readVisual(file,password){return pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/',wasmUrl:'/wasm/'}).promise;}
@@ -50,10 +51,11 @@ export async function advanced(action,file,o){
  if(!['summarize','translate'].includes(action)&&file.size>2.8*1024*1024)throw Error('حد الخدمة المتقدمة 2.8 MB.');
  if(file.size>100*1024*1024)throw Error('حد الملف ١٠٠ MB.');
  let content;const isAI=['summarize','translate'].includes(action); // Pro AI only; token gating is enforced server-side.
- if(isAI){content=(await extractText(file,true)).join('\n\n');if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
+ if(isAI){content=/\.pdf$/i.test(file.name)?(await extractText(file,true)).join('\n\n'):await readAiDocument(file);if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
  else{const b=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<b.length;i+=8192)raw+=String.fromCharCode(...b.subarray(i,i+8192));content=btoa(raw);}
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),285000);
  let response;try{response=await fetch('/api/advanced',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة المعالجة؛ راجع الرصيد قبل إعادة المحاولة.');throw e;}finally{clearTimeout(timer);}
  const data=await response.json().catch(()=>({error:'خدمة المعالجة غير متاحة.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');
+ if(isAI&&o.aiOutput==='docx'){const blob=await aiDocumentOutput(data.text);return [{data:await blob.arrayBuffer(),name:'BDF-Egypt-'+action+'.docx',type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',preview:data.text}];}
  return isAI?[{data:data.text,name:'BDF-Egypt-'+action+'.txt',type:'text/plain;charset=utf-8',preview:data.text}]:[{data:Uint8Array.from(atob(data.file),c=>c.charCodeAt(0)),name:'BDF-Egypt-'+action+'.pdf',type:'application/pdf'}];
 }

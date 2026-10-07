@@ -5,11 +5,12 @@ import JSZip from 'jszip';
 import {DOMParser as XMLParser} from '@xmldom/xmldom';
 class DOMParser { parseFromString(xml,type){const doc=new XMLParser({onError:()=>{throw Error('invalid XML')}}).parseFromString(xml,type);return {querySelector:tag=>doc.getElementsByTagName(tag)[0]||null};} }
 import {PDFDocument} from 'pdf-lib';
+import * as DOCX from 'docx';
 // Run the actual transfer functions in isolation from UI-only imports.
 const source=await fs.readFile(new URL('../src/autofill.js',import.meta.url),'utf8');
-const context=vm.createContext({JSZip,PDFDocument,Blob,File,URL,console,DOMParser});
-vm.runInContext(source.slice(source.indexOf('const E='),source.indexOf('async function previewDocx'))+'\nglobalThis.transfer={fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput};',context);
-const {fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput}=context.transfer;
+const context=vm.createContext({JSZip,PDFDocument,Blob,File,URL,console,DOMParser,DOCX});
+vm.runInContext(source.slice(source.indexOf('const E='),source.indexOf('async function previewDocx')).replace(/^export /gm,'')+'\nglobalThis.transfer={fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput,readAiDocument,aiDocumentOutput};',context);
+const {fillDocx,fillText,sourceEvidence,verify,askAI,validateDocxOutput,readAiDocument,aiDocumentOutput}=context.transfer;
 const para=t=>`<w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
 const cell=t=>`<w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/></w:tcPr>${para(t)}</w:tc>`;
 const row=cells=>`<w:tr><w:trPr><w:cantSplit/></w:trPr>${cells.join('')}</w:tr>`;
@@ -57,3 +58,12 @@ if(template){
  for(const f of proven)assert(actual.includes(f.value),'missing '+f.label);
  console.log('PASS: actual uploaded Word template filled with all 22 verified values');
 }
+
+const plain=await readAiDocument(new File(['نص عربي ١٥'], 'sample.txt'));
+assert.equal(plain,'نص عربي ١٥');
+const docResult=await aiDocumentOutput('عنوان عربي\nEnglish text 15\nفقرة عربية ثانية');
+const docXml=await (await JSZip.loadAsync(await docResult.arrayBuffer())).file('word/document.xml').async('text');
+assert(docXml.includes('عنوان عربي'));assert(docXml.includes('English text 15'));assert(docXml.includes('فقرة عربية ثانية'));
+const extracted=await readAiDocument(new File([docResult],'ai-output.docx'));
+assert(extracted.includes('English text 15'));assert(extracted.includes('عنوان عربي'));
+console.log('PASS: AI accepts TXT and DOCX; editable Word output preserves Arabic and English text');
