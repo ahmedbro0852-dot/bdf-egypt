@@ -32,3 +32,15 @@ Native camera hardware capture was not exercised; image upload for the scanner w
 ## Manual subscription update, 2026-10-05
 
 Build and existing PDF core tests passed. Three real-HTTP subscription tests cover all four plans, administrator authorization, exact-price enforcement, payment confirmation, expired codes and modified signatures. Browser tests exercised `/pricing` → unavailable-payment state (no WhatsApp supplied), `/admin` → synthetic code issuance, activation and revalidation after reload, Pro saved preset restore, two-file rotation batch with actual PDF output angles, removal of local activation, and the remaining free single-file workflow. Mobile pricing at 390px has no document overflow; no frontend page errors were observed. Advanced service rejects an unauthenticated caller and returns unavailable for an authenticated caller while AI is not configured. No actual payment or AI provider call was made. Production subscription environment values were provisioned encrypted; owner credentials are delivered privately and excluded from git.
+
+## Smart transfer and interface review — 2026-10-07
+
+- Fixed the inherited `display:block` dashboard layout and full-height horizontal navigation gap.
+- Inspected opening and closing all 42 tool dialogs in the live browser; search filtering worked.
+- Added multiple source files (10 files / 100 MB total), original-source excerpts, editable multiline values, manual choice among ambiguous Word destinations, and a downloadable local JSON audit report.
+- Prevented silent source/model truncation, final-value shortening, duplicate destination filtering, and acceptance of truthy string coverage flags.
+- Word tests cover property tags, identical empty cells, ambiguous repeated labels, explicit manual placement and valid generated XML; evidence tests reject numeric substrings/concatenation.
+- Output checks verify values at recorded Word destinations. Failed or uncertain mappings remain visible for review. Busy operations cannot be abandoned through Escape or file replacement.
+- Read-only Supabase review confirmed `bdf_files` RLS, own-user storage policies and a private `bdf-user-files` bucket.
+- `npm test`, `python -m unittest tests/autofill_validation.py`, syntax checks and production build passed.
+- AI provider execution with a real paid/trial license was not run. Word's HTML preview is approximate. Arabic PDF-form filling requires a font supported by the PDF; unsupported appearances are rejected explicitly. Automated review cannot guarantee semantic accuracy.

@@ -27,7 +27,7 @@ async function pdfText(file,setStatus=()=>{}){
     for(let i=1;i<=d.numPages;i++){
       const page=await d.getPage(i);
       const tc=await page.getTextContent();
-      let text=(tc.items||[]).map(x=>x.str||'').join(' ').replace(/\s+/g,' ').trim();
+      let text=(tc.items||[]).map(x=>(x.str||'')+(x.hasEOL?'\n':' ')).join('').replace(/[^\S\n]+/g,' ').trim();
       const meaningful=auditToken(text);
       if(meaningful.length<8){
         setStatus('OCR للصفحة '+i+' من '+d.numPages+'…');
@@ -38,7 +38,7 @@ async function pdfText(file,setStatus=()=>{}){
         const canvas=document.createElement('canvas');
         canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
         await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
-        text=String((await worker.recognize(canvas)).data.text||'').replace(/\s+/g,' ').trim();
+        text=String((await worker.recognize(canvas)).data.text||'').trim();
         canvas.width=1;canvas.height=1;
       }
       pages.push(text);
@@ -68,7 +68,7 @@ async function officeText(file){
   }
   if(e==='pptx'){
     const z=await JSZip.loadAsync(await file.arrayBuffer());
-    const names=Object.keys(z.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n)).sort();
+    const names=Object.keys(z.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a,b)=>Number(a.match(/slide(\d+)/)[1])-Number(b.match(/slide(\d+)/)[1]));
     const out=[];
     for(const n of names){
       const xml=await z.file(n).async('text');
@@ -86,6 +86,7 @@ async function imageText(file,setStatus){
   }finally{if(worker)await worker.terminate()}
 }
 async function readSource(file,setStatus){
+  if(!file.size)throw Error('ملف المصدر فارغ: '+file.name);
   if(file.size>100*1024*1024)throw Error('الحد الحالي 100 MB.');
   const e=X(file.name);
   if(e==='pdf')return pdfText(file,setStatus);
@@ -110,21 +111,22 @@ async function docxStructure(file){
       const text=visible(block);
       if(alias||tag||text)out.push('[حقل Word '+(ci+1)+'] الاسم: '+(alias||tag||'بدون اسم')+(tag&&tag!==alias?' | الوسم: '+tag:'')+(text?' | القيمة الحالية: '+text:''));
     });
-    const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+    const rows=xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[];
     rows.forEach((row,ri)=>{
-      const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
-      const texts=cells.map(c=>visible(c)).filter(Boolean);
+      const cells=row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[];
+      const texts=cells.map(c=>visible(c));
       if(texts.length)out.push('[صف جدول '+(ri+1)+'] '+texts.map((t,i)=>'خلية '+(i+1)+': '+t).join(' | '));
     });
-    const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+    const paras=xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[];
     paras.forEach((p,pi)=>{
       const t=visible(p);
       if(t)out.push('[سطر '+(pi+1)+'] '+t);
     });
   }
-  return out.join('\n').slice(0,40000);
+  return out.join('\n');
 }
 async function readTarget(file){
+  if(!file.size)throw Error('النموذج فارغ.');
   const e=X(file.name);
   if(e==='docx')return {kind:'docx',text:await docxStructure(file)};
   if(e==='pdf'){
@@ -137,13 +139,17 @@ async function readTarget(file){
   throw Error('النموذج يدعم DOCX أو PDF Form أو TXT/MD.');
 }
 async function askAI(source,target,trialCode=''){
+  if(source.length>80000)throw Error('النص المستخرج أكبر من ٨٠ ألف حرف. قسّم ملفات المصدر؛ لم يتم قص أي معلومة أو إرسال الطلب.');
+  if(target.length>40000)throw Error('النموذج أكبر من ٤٠ ألف حرف. قسّمه إلى نماذج أصغر؛ لم يتم قص النموذج.');
   const code=String(trialCode||'').trim();
   if(!hasAiPack()&&!code)throw Error('فعّل Pro AI أو اكتب كود التجربة.');
   const headers={'Content-Type':'application/json'};
   if(hasAiPack())headers.Authorization='Bearer '+aiPackToken();
-  const r=await fetch('/api/advanced',{method:'POST',headers,body:JSON.stringify({action:'autofill',sourceText:source.slice(0,80000),targetText:target.slice(0,40000),trialCode:hasAiPack()?'':code})});
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),210000);
+  let r;
+  try{r=await fetch('/api/advanced',{method:'POST',headers,signal:controller.signal,body:JSON.stringify({action:'autofill',sourceText:source,targetText:target,trialCode:hasAiPack()?'':code})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة التحليل. راجع الرصيد قبل إعادة المحاولة؛ قد يكون الخادم أكمل الطلب.');throw e;}finally{clearTimeout(timeout);}
   const d=await r.json().catch(()=>({}));
-  if(!r.ok)throw Error(d.error||'تعذر تحليل الملفين.');
+  if(!r.ok){const details=(d.coverage?.missed_relevant_facts||[]).join('، ');throw Error((d.error||'تعذر تحليل الملفين.')+(details?' المعلومات التي تحتاج مراجعة: '+details:''));}
   return d;
 }
 const latinDigits=s=>String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
@@ -157,11 +163,18 @@ const countToken=(text,value)=>{
 };
 function sourceEvidence(value,quote,source){
   if(!String(value||'').trim())return {ok:true,score:1,type:'فارغ'};
-  const ns=N(source),nv=N(value),nq=N(quote);
-  if(nv&&ns.includes(nv))return {ok:true,score:1,type:'مطابقة حرفية'};
-  const token=auditToken(value);
-  if(token.length>=3&&auditToken(source).includes(token))return {ok:true,score:.96,type:'مطابقة بعد توحيد التنسيق'};
-  if(nq&&ns.includes(nq)&&(nq.includes(nv)||auditToken(nq).includes(token)))return {ok:true,score:.9,type:'مثبت داخل مقتطف المصدر'};
+  const clean=s=>String(s||'').normalize('NFKC').replace(/\s+/g,' ').trim();
+  const contains=(hay,needle)=>{
+    let at=-1;
+    while((at=hay.indexOf(needle,at+1))>=0){
+      const before=hay[at-1]||'',after=hay[at+needle.length]||'';
+      if(!/[\p{L}\p{N}]/u.test(before)&&!/[\p{L}\p{N}]/u.test(after))return true;
+    }
+    return false;
+  };
+  const nv=clean(value),ns=clean(source);
+  if(contains(ns,nv))return {ok:true,score:1,type:'مطابقة حرفية'};
+  if(contains(latinDigits(ns).toLowerCase(),latinDigits(nv).toLowerCase()))return {ok:true,score:.96,type:'مطابقة بعد توحيد الأرقام'};
   return {ok:false,score:.35,type:'غير مثبت بوضوح'};
 }
 function verify(fields,source){
@@ -198,10 +211,9 @@ function verify(fields,source){
     const enabled=group.filter(x=>x.f.enabled);
     const distinct=new Set(enabled.map(x=>auditToken(x.f.value)));
     if(enabled.length>1&&distinct.size>1){
-      enabled.sort((a,b)=>b.f.confidence-a.f.confidence);
-      enabled.slice(1).forEach(x=>{
+      enabled.forEach(x=>{
         x.f.enabled=false;
-        x.f.conflict='نفس خانة النموذج اتربطت بأكثر من قيمة؛ تم إيقاف الأقل ثقة.';
+        x.f.conflict='قيم مختلفة لنفس الخانة؛ راجع الربط قبل الكتابة.';
       });
     }
   }
@@ -209,12 +221,12 @@ function verify(fields,source){
 }
 const xEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 const xDec=s=>s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
-const visible=xml=>xDec((xml.match(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/g)||[]).map(x=>x.replace(/<w:t(?:\s[^>]*)?>/,'').replace(/<\/w:t>/,'')).join(' ')).replace(/\s+/g,' ').trim();
+const visible=xml=>xDec([...String(xml).matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:(?:tab|br)\b[^>]*\/>|<\/w:(?:p|tc|tr)>/g)].map(m=>m[1]!==undefined?m[1]:' ').join('')).replace(/\s+/g,' ').trim();
 const rPr=xml=>(xml.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)||[])[0]||'';
 const pPr=xml=>(xml.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)||[])[0]||'';
 const cleanPr=pr=>pr.replace(/<w:b(?:\s*\/>|>[\s\S]*?<\/w:b>)/g,'').replace(/<w:bCs(?:\s*\/>|>[\s\S]*?<\/w:bCs>)/g,'');
 function visiblePr(primary='',fallback=''){
-  let pr=String(primary||'');
+  let pr=String(primary||'').replace(/^<w:rPr[^>]*>/,'').replace(/<\/w:rPr>$/,'');
   const fb=String(fallback||'');
   // Word can keep hidden/white/very-small formatting inside an otherwise blank cell.
   pr=pr
@@ -251,7 +263,7 @@ function visiblePr(primary='',fallback=''){
     const colorFallback=(fb.match(/<w:color[^>]*\/>/i)||[])[0];
     pr+=colorFallback||'<w:color w:val="000000"/>';
   }
-  return pr;
+  return '<w:rPr>'+pr+'</w:rPr>';
 }
 function styleMeta(pr){
   const sz=(pr.match(/<w:sz[^>]*w:val="([^"]+)"/)||[])[1];
@@ -259,12 +271,16 @@ function styleMeta(pr){
   const font=(pr.match(/<w:rFonts[^>]*(?:w:ascii|w:cs|w:hAnsi)="([^"]+)"/)||[])[1];
   return {size:sz?Number(sz)/2:null,color:color&&color!=='auto'?'#'+color:null,font:font||null};
 }
-const run=(v,pr)=>'<w:r>'+pr+'<w:t xml:space="preserve">'+xEsc(v)+'</w:t></w:r>';
+const run=(v,pr)=>'<w:r>'+pr+String(v).split(/\r?\n/).map(x=>'<w:t xml:space="preserve">'+xEsc(x)+'</w:t>').join('<w:br/>')+'</w:r>';
 const blank=s=>!String(s||'').trim()||/^[\s._\-–—…:：/\\|()\[\]{}]+$/.test(String(s||'').trim());
 const placeholder=s=>{
   const t=N(s);
   return blank(s)||/^(اكتب|ادخل|أدخل|يكتب|يُكتب|اكتب هنا|ادخل هنا|أدخل هنا|القيمة|value|enter|type here|n\/a|na)$/.test(t)||/^\{\{.+\}\}$/.test(String(s||'').trim())||/^\[.+\]$/.test(String(s||'').trim());
 };
+function replaceOccurrence(xml,pattern,index,replacement){
+  let current=0;
+  return xml.replace(pattern,match=>current++===index?replacement:match);
+}
 function matchScore(text,aliases){
   const t=N(text);
   let best=0;
@@ -318,7 +334,7 @@ function writeIntoCell(cell,labelCell,value){
   const labelPr=cleanPr(rPr(labelCell));
   const direct=replaceTextPreserveStyle(cell,value,labelPr);
   if(direct)return direct;
-  const paragraphs=cell.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+  const paragraphs=cell.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[];
   const p=paragraphs[0]||'';
   const targetPr=rPr(cell);
   const pr=visiblePr(targetPr,labelPr);
@@ -378,7 +394,8 @@ async function fillDocx(file,fields){
   for(const f of fields){
     if(!f.enabled||!f.value.trim())continue;
     const aliases=[N(f.anchor),N(f.label)].filter(Boolean);
-    let bestMatch=null;
+    let bestMatch=null,ambiguous=false;const candidates=[];
+    const consider=match=>{match.key=match.key||(match.partName+':sdt:'+match.index);candidates.push(match);if(f.manualLocation&&match.key!==f.manualLocation)return;if(!bestMatch||match.total>bestMatch.total){bestMatch=match;ambiguous=false;}else if(match.total===bestMatch.total)ambiguous=true;};
 
     for(const partName of partNames){
       const entry=z.file(partName);
@@ -389,43 +406,42 @@ async function fillDocx(file,fields){
         const key=partName+':sdt:'+index;
         if(usedLocations.has(key))return;
         const meta=contentControlMeta(block);
-        const score=Math.max(matchScore(meta.alias,aliases)+35,matchScore(meta.tag,aliases)+30,matchScore(meta.text,aliases));
-        if(score<95)return;
-        if(!bestMatch||score>bestMatch.total)bestMatch={kind:'sdt',partName,index,total:score};
+        const score=Math.max(matchScore(meta.alias,aliases)+160,matchScore(meta.tag,aliases)+155,matchScore(meta.text,aliases));
+        if(![meta.alias,meta.tag,meta.text].some(t=>matchScore(t,aliases)>=105))return;
+        consider({kind:'sdt',partName,index,total:score});
       });
 
-      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+      const rows=xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[];
       rows.forEach((row,rowIndex)=>{
-        const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
+        const cells=row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[];
         cells.forEach((cell,cellIndex)=>{
           const score=matchScore(visible(cell),aliases);
-          if(score<=0)return;
+          if(score<105)return;
           const target=chooseTargetCell(cells,cellIndex);
           if(!target)return;
           const key=partName+':table:'+rowIndex+':'+target.index;
           if(usedLocations.has(key))return;
           const total=score+target.score;
-          if(!bestMatch||total>bestMatch.total){
-            bestMatch={kind:'table',partName,rowIndex,labelIndex:cellIndex,targetIndex:target.index,total,key};
-          }
+          consider({kind:'table',partName,rowIndex,labelIndex:cellIndex,targetIndex:target.index,total,key});
         });
       });
 
-      const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+      const paragraphMatches=[...xml.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+      const paras=paragraphMatches.map(m=>m[0]);
       paras.forEach((p,pIndex)=>{
+        const before=xml.slice(0,paragraphMatches[pIndex].index);
+        if(before.lastIndexOf('<w:tbl')>before.lastIndexOf('</w:tbl>')||before.lastIndexOf('<w:sdt')>before.lastIndexOf('</w:sdt>'))return;
         const key=partName+':paragraph:'+pIndex;
         if(usedLocations.has(key))return;
         const score=matchScore(visible(p),aliases);
         if(score<105)return;
         const total=score-22;
-        if(!bestMatch||total>bestMatch.total){
-          bestMatch={kind:'paragraph',partName,pIndex,total,key};
-        }
+        consider({kind:'paragraph',partName,pIndex,total,key});
       });
     }
 
-    if(!bestMatch){
-      placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا أو المكان مستخدم لحقل آخر',confidence:0,method:'تم منع الكتابة العشوائية أو المكررة'});
+    if(!bestMatch||ambiguous){
+      placements.push({label:f.label,where:ambiguous?'لم يُحسم المكان: أكثر من خانة متشابهة':'لم نجد مكانًا موثوقًا أو المكان مستخدم لحقل آخر',confidence:0,method:'تم منع الكتابة العشوائية أو المكررة',choices:candidates.map(c=>({id:c.key,label:locationPartName(c.partName)+(c.kind==='table'?' · صف '+(c.rowIndex+1)+' · خلية '+(c.targetIndex+1):c.kind==='sdt'?' · حقل Word '+(c.index+1):' · سطر '+(c.pIndex+1))}))});
       continue;
     }
 
@@ -440,42 +456,45 @@ async function fillDocx(file,fields){
         placements.push({label:f.label,where:'حقل Word مخصص لكن تعذر الكتابة داخله',confidence:0,method:'لم يتم تعديل الملف'});
         continue;
       }
-      xml=xml.replace(block,written.xml);
+      xml=replaceOccurrence(xml,/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g,bestMatch.index,written.xml);
       z.file(bestMatch.partName,xml);
       const key=bestMatch.partName+':sdt:'+bestMatch.index;
       usedLocations.add(key);
       placements.push(Object.assign({
         label:f.label,
+        location:{partName:bestMatch.partName,kind:bestMatch.kind,index:bestMatch.index,rowIndex:bestMatch.rowIndex,targetIndex:bestMatch.targetIndex,pIndex:bestMatch.pIndex},
         where:locationPartName(bestMatch.partName)+' · حقل Word مخصص',
         confidence:Math.min(99,Math.round(bestMatch.total/1.5)),
         method:written.method
       },styleMeta(written.pr)));
     }else if(bestMatch.kind==='table'){
-      const rows=xml.match(/<w:tr[\s\S]*?<\/w:tr>/g)||[];
+      const rows=xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[];
       const row=rows[bestMatch.rowIndex];
-      const cells=row.match(/<w:tc[\s\S]*?<\/w:tc>/g)||[];
+      const cells=row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[];
       const labelCell=cells[bestMatch.labelIndex];
       const targetCell=cells[bestMatch.targetIndex];
       const written=writeIntoCell(targetCell,labelCell,f.value);
-      const newRow=row.replace(targetCell,written.xml);
-      xml=xml.replace(row,newRow);
+      const newRow=replaceOccurrence(row,/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g,bestMatch.targetIndex,written.xml);
+      xml=replaceOccurrence(xml,/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g,bestMatch.rowIndex,newRow);
       z.file(bestMatch.partName,xml);
       usedLocations.add(bestMatch.key);
       placements.push(Object.assign({
         label:f.label,
+        location:{partName:bestMatch.partName,kind:bestMatch.kind,index:bestMatch.index,rowIndex:bestMatch.rowIndex,targetIndex:bestMatch.targetIndex,pIndex:bestMatch.pIndex},
         where:locationPartName(bestMatch.partName)+' · جدول · الخلية المقابلة مباشرة',
         confidence:Math.min(99,Math.round(bestMatch.total/2)),
         method:written.method
       },styleMeta(written.pr)));
     }else{
-      const paras=xml.match(/<w:p[\s\S]*?<\/w:p>/g)||[];
+      const paras=xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[];
       const p=paras[bestMatch.pIndex];
       const written=writeIntoParagraph(p,f.value);
-      xml=xml.replace(p,written.xml);
+      xml=replaceOccurrence(xml,/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g,bestMatch.pIndex,written.xml);
       z.file(bestMatch.partName,xml);
       usedLocations.add(bestMatch.key);
       placements.push(Object.assign({
         label:f.label,
+        location:{partName:bestMatch.partName,kind:bestMatch.kind,index:bestMatch.index,rowIndex:bestMatch.rowIndex,targetIndex:bestMatch.targetIndex,pIndex:bestMatch.pIndex},
         where:locationPartName(bestMatch.partName)+' · نفس السطر بعد اسم الحقل',
         confidence:Math.min(95,Math.round(bestMatch.total/1.2)),
         method:written.method
@@ -513,7 +532,7 @@ async function fillPdf(file,fields){
       placements.push({label:f.label,where:'حقل PDF: '+t.getName(),confidence:choice.score>=200?100:92});
     }catch{placements.push({label:f.label,where:'تعذر تعبئة '+t.getName()})}
   }
-  try{form.updateFieldAppearances()}catch{}
+  try{form.updateFieldAppearances()}catch{throw Error('خط PDF الحالي لا يدعم بعض القيم. استخدم نموذج Word لنقل النص العربي؛ لم يتم إنشاء PDF ناقص.');}
   return {blob:new Blob([await p.save()],{type:'application/pdf'}),placements:placements};
 }
 async function validatePdfOutput(blob,fields,placements=[]){
@@ -555,17 +574,26 @@ function validateTextOutput(text,template,fields){
   return {ok:missing.length===0,missing};
 }
 function fillText(template,fields){
-  let out=template;const placements=[];
+  let out=template;const placements=[],used=new Set();
   for(const f of fields){
     if(!f.enabled||!f.value.trim())continue;
-    let done=false;
-    for(const a of [f.anchor,f.label].filter(Boolean)){
-      const i=out.toLowerCase().indexOf(a.toLowerCase());
-      if(i>=0){const e=i+a.length;out=out.slice(0,e)+' '+f.value+out.slice(e);placements.push({label:f.label,where:'بعد اسم الحقل'});done=true;break}
-    }
-    if(!done)placements.push({label:f.label,where:'لم نجد مكانًا موثوقًا'});
+    const aliases=[...new Set([f.anchor,f.label].filter(Boolean))];
+    const lines=out.split('\n'),matches=[];
+    lines.forEach((line,index)=>{
+      if(used.has(index))return;
+      for(const a of aliases){
+        const token='{{'+a+'}}';
+        if(line.includes(token)){matches.push({index,token});break;}
+        const clean=line.trim(),pos=clean.indexOf(':');
+        if(N(pos<0?clean:clean.slice(0,pos))===N(a)&&(!clean.slice(pos<0?clean.length:pos+1).trim()||placeholder(clean.slice(pos+1)))){matches.push({index,anchor:a});break;}
+      }
+    });
+    if(matches.length!==1){placements.push({label:f.label,where:'لم نجد خانة نصية واحدة مطابقة وآمنة'});continue;}
+    const m=matches[0];
+    lines[m.index]=m.token?lines[m.index].replace(m.token,f.value):lines[m.index].replace(/[:：].*$/,'').trimEnd()+': '+f.value;
+    out=lines.join('\n');used.add(m.index);placements.push({label:f.label,where:'السطر '+(m.index+1),confidence:100});
   }
-  return {text:out,blob:new Blob([out],{type:'text/plain;charset=utf-8'}),placements:placements};
+  return {text:out,blob:new Blob([out],{type:'text/plain;charset=utf-8'}),placements};
 }
 async function validateDocxOutput(blob,fields,originalFile,placements=[]){
   const active=fields.filter(f=>f.enabled&&String(f.value||'').trim());
@@ -605,6 +633,8 @@ async function validateDocxOutput(blob,fields,originalFile,placements=[]){
       if(added>g.expected)extra.push(g);
     }
 
+    const wrongLocations=[];
+    for(const f of active){const loc=placements.find(p=>p.label===f.label)?.location;if(!loc){wrongLocations.push(f.label);continue;}const part=zip.file(loc.partName);if(!part){wrongLocations.push(f.label);continue;}const xml=await part.async('text');let block='';if(loc.kind==='table'){const row=(xml.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g)||[])[loc.rowIndex]||'';block=(row.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g)||[])[loc.targetIndex]||'';}else if(loc.kind==='sdt'){block=(xml.match(/<w:sdt(?:\s[^>]*)?>[\s\S]*?<\/w:sdt>/g)||[])[loc.index]||'';}else block=(xml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)||[])[loc.pIndex]||'';if(!auditToken(visible(block)).includes(auditToken(f.value)))wrongLocations.push(f.label);}
     const successfulPlacements=placements.filter(p=>Number(p.confidence||0)>0&&!String(p.where||'').startsWith('لم')).length;
     const placementMissing=Math.max(0,active.length-successfulPlacements);
     const lowEvidence=active.filter(f=>Number(f.evidenceScore||0)<.95);
@@ -615,13 +645,15 @@ async function validateDocxOutput(blob,fields,originalFile,placements=[]){
     if(conflicts.length)warnings.push('تم إيقاف تعارضات ربط بين أكثر من قيمة ونفس الخانة.');
     if(!structuralOk)warnings.push('بنية ملف Word النهائية غير سليمة.');
 
-    if(placementMissing)warnings.push('بعض سجلات المكان لم تُحسم 100%، لكن القيم النهائية تم فحصها داخل Word.');
-    const hardIssues=missing.length+(structuralOk?0:1);
+    if(placementMissing)warnings.push('توجد خانات لم يتم تأكيد الكتابة داخل مكانها؛ التنزيل متوقف.');
+    if(wrongLocations.length)warnings.push('قيمة غير موجودة في خانتها المحددة: '+wrongLocations.join('، '));
+    const hardIssues=missing.length+wrongLocations.length+extra.length+placementMissing+(structuralOk?0:1);
     const score=Math.max(0,100-hardIssues*30-extra.length*4-lowEvidence.length*2-placementMissing*2);
     return {
       ok:hardIssues===0,
       score,
       structuralOk,
+      wrongLocations,
       missing,
       extra,
       placementMissing,
@@ -662,43 +694,57 @@ function csv(fields){const rows=[['field','value','confidence'],...fields.filter
 export function openAutofill(ctx){
   const root=ctx.root,icon=ctx.icon,refreshIcons=ctx.refreshIcons,toast=ctx.toast,onClose=ctx.onClose;
   revoke();
-  let dataFile=null,targetFile=null,source='',target=null,fields=[],filled=null,placements=[],audit=null,coverage=null,requiredMappings=[],busy=false,savedInputs=false;
-  root.innerHTML='<div class="modal-backdrop"><section class="workspace af-workspace" role="dialog" aria-modal="true">'+
-    '<header class="workspace-header"><span class="service-logo service-logo-ai"><strong>AI</strong><span>'+icon('FileInput')+'</span></span><div><div class="workspace-title-row"><h2>تعبئة ونقل البيانات الذكي</h2><span class="workspace-tier pro">PRO</span></div><p>ارفع ملف البيانات والنموذج، وراجع النتيجة داخل BDF Egypt قبل التنزيل.</p></div><button class="icon-btn" id="af-close">'+icon('X')+'</button></header>'+
+  let dataFile=null,dataFiles=[],targetFile=null,notes=[],source='',target=null,fields=[],filled=null,placements=[],audit=null,coverage=null,requiredMappings=[],busy=false,savedInputs=false;
+  root.innerHTML='<div class="modal-backdrop"><section class="workspace af-workspace" role="dialog" aria-modal="true" aria-labelledby="af-heading">'+
+    '<header class="workspace-header"><span class="service-logo service-logo-ai"><strong>AI</strong><span>'+icon('FileInput')+'</span></span><div><div class="workspace-title-row"><h2 id="af-heading">النقل الذكي من ملف لملف</h2><span class="workspace-tier pro">PRO</span></div><p>ارفع ملف البيانات والنموذج، وراجع النتيجة داخل BDF Egypt قبل التنزيل.</p></div><button class="icon-btn" id="af-close" aria-label="إغلاق النقل الذكي">'+icon('X')+'</button></header>'+
     '<div class="af-body"><div class="af-upload-grid">'+
-    '<section class="af-box"><b>1</b><h3>ملف البيانات</h3><p>PDF · Word · Excel · CSV · JSON · PowerPoint · صور</p><button class="primary" id="af-data-btn" type="button">'+icon('Upload')+'رفع ملف البيانات</button><input id="af-data" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx,.xls,.pptx,.png,.jpg,.jpeg,.webp" hidden><small id="af-data-name">لم يتم اختيار ملف</small></section>'+
+    '<section class="af-box"><b>1</b><h3>ملفات المصدر</h3><p>PDF · Word · Excel · CSV · JSON · PowerPoint · صور</p><button class="primary" id="af-data-btn" type="button">'+icon('Upload')+'اختيار ملفات المصدر</button><input id="af-data" type="file" multiple accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx,.xls,.pptx,.png,.jpg,.jpeg,.webp" hidden><small id="af-data-name">لم يتم اختيار ملف</small></section>'+
     '<section class="af-box"><b>2</b><h3>النموذج المطلوب تعبئته</h3><p>Word DOCX · PDF Form · TXT/Markdown</p><button class="primary" id="af-target-btn" type="button">'+icon('FileUp')+'رفع النموذج</button><input id="af-target" type="file" accept=".docx,.pdf,.txt,.md" hidden><small id="af-target-name">لم يتم اختيار ملف</small></section></div>'+
-    '<div class="af-action">'+(!hasAiPack()?'<label class="af-trial-wrap"><span>عندك كود تجربة؟</span><input id="af-trial" class="af-trial" type="password" autocomplete="off" placeholder="اكتب كود التجربة"></label>':'')+(hasAiPack()?'<span class="af-credit-badge">رصيد ملفات AI مفعّل</span>':'')+'<button class="primary" id="af-analyze" disabled>'+icon('Sparkles')+'فهم الملفين وتوزيع البيانات تلقائيًا</button><span id="af-status"></span></div>'+
-    '<div id="af-review" hidden><div class="af-stats" id="af-stats"></div><div id="af-audit" class="af-audit" hidden></div><div class="af-head"><div><h3>راجع القيمة ومكانها وتنسيقها</h3><p>القيم غير المثبتة من المصدر لا تتفعل تلقائيًا.</p></div><button class="secondary" id="af-preview">'+icon('Eye')+'معاينة</button></div><div id="af-fields" class="af-fields"></div>'+
+    '<div class="af-action">'+(!hasAiPack()?'<label class="af-trial-wrap"><span>عندك كود تجربة؟</span><input id="af-trial" class="af-trial" type="password" autocomplete="off" placeholder="اكتب كود التجربة"></label>':'')+(hasAiPack()?'<span class="af-credit-badge">رصيد ملفات AI مفعّل</span>':'')+'<button class="primary" id="af-analyze" disabled>'+icon('Sparkles')+'فهم الملفين وتوزيع البيانات تلقائيًا</button><span id="af-status" role="status" aria-live="polite"></span></div>'+
+    '<p class="af-guide">١. اختار حتى ١٠ ملفات مصدر ونموذجًا واحدًا. ٢. راجع القيم ومقتطفات المصدر. ٣. عاين الملف ونزّله. القيم المتعارضة أو الأماكن غير المؤكدة توقف التنزيل.</p><div id="af-review" hidden><div class="af-stats" id="af-stats"></div><div id="af-audit" class="af-audit" hidden></div><div class="af-head"><div><h3>راجع القيمة ومكانها وتنسيقها</h3><p>القيم غير المثبتة من المصدر لا تتفعل تلقائيًا.</p></div><button class="secondary" id="af-preview">'+icon('Eye')+'معاينة</button></div><div id="af-notes" class="af-notes"></div><div id="af-fields" class="af-fields"></div>'+
     '<div class="af-preview-wrap"><div class="af-preview-head"><strong>المعاينة داخل BDF Egypt</strong><span id="af-preview-note"></span></div><div id="af-preview-box" class="af-preview"><div class="af-empty">اضغط معاينة قبل التنزيل.</div></div></div>'+
-    '<div class="af-export"><label>صيغة التحميل<select id="af-format"><option value="same">نفس صيغة النموذج</option><option value="pdf">PDF</option><option value="docx">Word DOCX</option><option value="txt">TXT</option><option value="json">JSON</option><option value="csv">CSV</option></select></label><button class="primary" id="af-download">'+icon('Download')+'تنزيل الملف النهائي</button></div></div><div class="error" id="af-error" hidden></div></div></section></div>';
+    '<div class="af-export"><button class="secondary" id="af-report">تنزيل تقرير المراجعة</button><label>صيغة التحميل<select id="af-format"><option value="same">نفس صيغة النموذج</option><option value="pdf">PDF</option><option value="docx">Word DOCX</option><option value="txt">TXT</option><option value="json">JSON</option><option value="csv">CSV</option></select></label><button class="primary" id="af-download">'+icon('Download')+'تنزيل الملف النهائي</button></div></div><div class="error" id="af-error" role="alert" hidden></div></div></section></div>';
   refreshIcons();
   const q=s=>root.querySelector(s),status=s=>{q('#af-status').textContent=s||''},error=s=>{q('#af-error').hidden=!s;q('#af-error').textContent=s||''};
-  const lock=(v,s)=>{busy=v;status(s||'');q('#af-analyze').disabled=v||!dataFile||!targetFile;if(q('#af-preview'))q('#af-preview').disabled=v;if(q('#af-download'))q('#af-download').disabled=v};
+  const lock=(v,s)=>{busy=v;ctx.onBusy?.(v);root.querySelectorAll('#af-data,#af-target,#af-data-btn,#af-target-btn,#af-trial,#af-fields input,#af-fields textarea,#af-fields select,#af-close,#af-report,#af-format').forEach(x=>x.disabled=v);status(s||'');q('#af-analyze').disabled=v||!dataFile||!targetFile;if(q('#af-preview'))q('#af-preview').disabled=v;if(q('#af-download'))q('#af-download').disabled=v};
   const baseName=()=>String(targetFile?.name||'BDF-Egypt').replace(/\.[^.]+$/,'')+'-filled';
+  q('#af-close').focus();
   q('#af-close').onclick=()=>{if(busy){toast('انتظر انتهاء العملية.');return}revoke();onClose()};
   q('#af-data-btn').onclick=()=>q('#af-data').click();q('#af-target-btn').onclick=()=>q('#af-target').click();
-  q('#af-data').onchange=e=>{dataFile=e.target.files?.[0]||null;coverage=null;audit=null;requiredMappings=[];q('#af-data-name').textContent=dataFile?dataFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
-  q('#af-target').onchange=e=>{targetFile=e.target.files?.[0]||null;coverage=null;audit=null;requiredMappings=[];q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';q('#af-review').hidden=true;lock(false,'')};
+  const invalidate=()=>{filled=null;audit=null;placements=[];savedInputs=false;error('');coverage=null;requiredMappings=[];q('#af-review').hidden=true;revoke();};
+  q('#af-data').onchange=e=>{
+    const selected=[...e.target.files||[]];
+    if(selected.length>10||selected.reduce((n,f)=>n+f.size,0)>100*1024*1024){error('اختر حتى ١٠ ملفات وبحجم إجمالي لا يزيد عن ١٠٠ MB.');e.target.value='';return;}
+    dataFiles=selected;dataFile=dataFiles[0]||null;invalidate();
+    q('#af-data-name').textContent=dataFiles.length?dataFiles.map(f=>f.name).join(' · '):'لم يتم اختيار ملفات';lock(false,'');
+  };
+  q('#af-target').onchange=e=>{const file=e.target.files?.[0]||null;if(file&&file.size>100*1024*1024){error('حد النموذج ١٠٠ MB.');e.target.value='';return;}targetFile=file;invalidate();q('#af-target-name').textContent=targetFile?targetFile.name:'لم يتم اختيار ملف';lock(false,'');};
+  const markEdited=()=>{filled=null;audit=null;placements=[];revoke();q('#af-preview-box').innerHTML='<div class="af-empty">القيم اتغيّرت. أعد المعاينة لعرض النسخة الجديدة.</div>';q('#af-preview-note').textContent='';renderAudit();};
+  q('#af-report').onclick=()=>dl(new Blob([JSON.stringify({version:2,createdAt:new Date().toISOString(),sources:dataFiles.map(f=>f.name),target:targetFile?.name,coverage,notes,fields:fields.map(f=>({label:f.label,value:f.value,enabled:f.enabled,sourceQuote:f.source_hint,evidence:f.evidenceType,conflict:f.conflict})),placements,audit},null,2)],{type:'application/json;charset=utf-8'}),baseName()+'-review.json');
   async function build(){
     if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length){
       throw Error('التدقيق المزدوج لم يثبت التغطية الكاملة؛ لن يتم إنشاء أو تنزيل ملف ناقص.');
     }
+    if(!fields.some(f=>f.enabled&&f.value.trim()))throw Error('لم تُعتمد أي قيمة للنقل. راجع الخانات وملاحظات التحليل، أو نزّل تقرير المراجعة.');
     const missingRequired=requiredMappings.filter(m=>!fields.some(f=>f.enabled&&f.label===m.label&&auditToken(f.value)===m.value));
     if(missingRequired.length){
       throw Error('تم إيقاف الملف لأن قيمة مؤكدة أُزيلت أو تغيّرت بعد التدقيق: '+missingRequired.map(x=>x.label).join('، '));
     }
+    const pending=fields.filter(f=>String(f.value||'').trim()&&!f.enabled);
+    if(pending.length)throw Error('راجع القيم غير المعتمدة قبل التنزيل: '+pending.map(f=>f.label).join('، '));
     const unsafe=fields.filter(f=>f.enabled&&String(f.value||'').trim()&&(!f.verified||f.conflict||Number(f.evidenceScore||0)<.96));
     if(unsafe.length){
       throw Error('تم إيقاف الملف لأن بعض القيم لم تصل لدرجة التحقق الصارمة: '+unsafe.map(x=>x.label).join('، '));
     }
     if(target.kind==='docx'){
       const out=Object.assign(await fillDocx(targetFile,fields),{kind:'docx'});
+      placements=out.placements||[];
       audit=await validateDocxOutput(out.blob,fields,targetFile,out.placements||[]);
       if(!audit.ok){
         const details=[
           audit.missing?.length?('القيم غير الموجودة في الملف النهائي: '+audit.missing.map(x=>x.fields.join('/')).join('، ')):'',
-          !audit.structuralOk?'بنية ملف Word غير سليمة':''
+          !audit.structuralOk?'بنية ملف Word غير سليمة':'',
+          audit.wrongLocations?.length?'راجع أماكن الخانات: '+audit.wrongLocations.join('، '):''
         ].filter(Boolean).join(' · ');
         throw Error('تعذر إنشاء Word سليم وآمن للتنزيل.'+(details?' '+details:''));
       }
@@ -727,50 +773,48 @@ export function openAutofill(ctx){
     const exact=fields.filter(f=>f.enabled&&f.evidenceType==='مطابقة حرفية').length;
     const normalized=fields.filter(f=>f.enabled&&f.evidenceType!=='مطابقة حرفية').length;
     const warnings=[...(audit.warnings||[])];
-    if(coverage?.complete&&!((coverage.missed_relevant_facts||[]).length))warnings.push('تغطية المصدر والنموذج اجتازت التدقيق المزدوج بدون معلومات قابلة للنقل مفقودة.');
+    if(coverage?.complete&&!((coverage.missed_relevant_facts||[]).length))warnings.push('مراجعة AI لم ترصد نقصًا. هذه نتيجة تدقيق آلي وليست ضمانًا للدقة؛ راجع النموذج والمصدر.');
     box.hidden=false;
     box.className='af-audit '+(ok?'good':'bad');
-    box.innerHTML='<div class="af-audit-top"><strong>'+(ok?'✓ تدقيق الملف ناجح':'⚠ التدقيق وجد مشكلة')+'</strong><b>'+Math.round(audit.score||0)+'%</b></div>'+
+    box.innerHTML='<div class="af-audit-top"><strong>'+(ok?'✓ تدقيق الملف ناجح':'⚠ التدقيق وجد مشكلة')+'</strong><b>'+(ok?'تم التحقق':'يحتاج مراجعة')+'</b></div>'+
       '<div class="af-audit-grid"><span><strong>'+audit.activeCount+'</strong> خانة مفعلة</span><span><strong>'+audit.successfulPlacements+'</strong> مكان كتابة مؤكد</span><span><strong>'+exact+'</strong> قيمة مطابقة حرفيًا</span><span><strong>'+normalized+'</strong> قيمة بعد توحيد التنسيق</span></div>'+
       (warnings.length?'<div class="af-audit-warnings">'+warnings.map(x=>'<p>• '+E(x)+'</p>').join('')+'</div>':'<p class="af-audit-clean">تمت مقارنة المصدر والنموذج والملف النهائي، والقيم أضيفت بالعدد المتوقع.</p>');
   }
   function render(){
-    const ok=fields.filter(f=>f.enabled).length,low=fields.filter(f=>f.value&&(!f.verified||f.confidence<.75||f.conflict)).length,miss=fields.filter(f=>!f.value).length;
+    const ok=fields.filter(f=>f.enabled).length,low=fields.filter(f=>f.value&&!f.enabled).length,miss=fields.filter(f=>!f.value).length;
     q('#af-stats').innerHTML='<div><strong>'+ok+'</strong><span>جاهز</span></div><div><strong>'+low+'</strong><span>مراجعة</span></div><div><strong>'+miss+'</strong><span>غير موجود</span></div>';
+    q('#af-notes').innerHTML=notes.length?'<strong>ملاحظات التحليل</strong>'+notes.map(n=>'<p>'+E(n)+'</p>').join(''):'';
     q('#af-fields').innerHTML=fields.map((f,i)=>{
       const p=placements.find(x=>x.label===f.label)||{};
       const style=[p.font?('الخط '+p.font):'',p.size?('الحجم '+p.size+'pt'):'',p.color?('اللون '+p.color):''].filter(Boolean).join(' · ');
-      const place=p.confidence?('دقة المكان '+p.confidence+'%'):'';
+      const place=p.confidence?('مؤشر المطابقة '+p.confidence+'%'):'';
       const method=p.method||'';
       const evidence=f.evidenceType||'غير مدقق';
-      return '<div class="af-field '+((!f.verified||f.confidence<.75||f.conflict)?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><input data-v="'+i+'" value="'+E(f.value)+'" placeholder="غير موجود"><div class="af-meta"><span>'+(f.verified?'✓ '+E(evidence):'⚠ غير مثبت من المصدر')+' · دقة البيانات '+Math.round(f.confidence*100)+'%</span>'+(f.conflict?'<span>⚠ '+E(f.conflict)+'</span>':'')+'<span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+(place?' · '+E(place):'')+'</span>'+(method?'<span>طريقة الكتابة: '+E(method)+'</span>':'')+(style?'<span>'+E(style)+'</span>':'')+'</div></div>';
+      return '<div class="af-field '+((f.value&&!f.enabled||f.conflict)?'low':'')+'"><label><input type="checkbox" data-en="'+i+'" '+(f.enabled?'checked':'')+' '+(!f.value?'disabled':'')+'><strong>'+E(f.label)+'</strong></label><textarea data-v="'+i+'" rows="2" aria-label="قيمة '+E(f.label)+'" placeholder="غير موجود">'+E(f.value)+'</textarea><div class="af-meta"><span>'+(f.verified?'✓ '+E(evidence):'⚠ غير مثبت من المصدر')+' · ثقة التحليل '+Math.round(f.confidence*100)+'%</span>'+(f.conflict?'<span>⚠ '+E(f.conflict)+'</span>':'')+'<span>'+E(p.where||'سيتم تحديد المكان عند المعاينة')+(place?' · '+E(place):'')+'</span>'+(method?'<span>طريقة الكتابة: '+E(method)+'</span>':'')+(style?'<span>'+E(style)+'</span>':'')+(p.choices?.length?'<label class="af-location">اختار مكان الكتابة<select data-location="'+i+'" aria-label="مكان '+E(f.label)+'"><option value="">اختيار الخانة يدويًا</option>'+p.choices.map(c=>'<option value="'+E(c.id)+'" '+(f.manualLocation===c.id?'selected':'')+'>'+E(c.label)+'</option>').join('')+'</select></label>':'')+(f.source_hint?'<details><summary>مقتطف المصدر</summary><p dir="auto">'+E(f.source_hint)+'</p></details>':'')+'</div></div>';
     }).join('');
-    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
-    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&!f.conflict&&ev.score>=.96;const idx=requiredMappings.findIndex(m=>m.label===f.label);if(f.enabled){const next={label:f.label,value:auditToken(f.value)};if(idx>=0)requiredMappings[idx]=next;else requiredMappings.push(next);}else if(idx>=0)requiredMappings.splice(idx,1);});
+    q('#af-fields').querySelectorAll('[data-location]').forEach(x=>x.onchange=()=>{fields[Number(x.dataset.location)].manualLocation=x.value;markEdited();status('تم اختيار الخانة. اضغط معاينة لفحص الكتابة.');});
+    q('#af-fields').querySelectorAll('[data-en]').forEach(x=>x.onchange=()=>{const f=fields[Number(x.dataset.en)];const req=requiredMappings.find(m=>m.label===f.label);if(req&&!x.checked){x.checked=true;f.enabled=true;toast('لضمان التطابق الكامل لا يمكن إسقاط قيمة تم اعتمادها في التدقيق.');return;}const allowed=f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&Boolean(f.value.trim());f.enabled=x.checked&&allowed;markEdited();x.checked=f.enabled;if(x.checked&&!allowed)x.checked=false;if(!allowed&&x===document.activeElement)toast('القيمة لازم تكون مثبتة من المصدر بدرجة تحقق عالية ومن غير تعارض.');});
+    q('#af-fields').querySelectorAll('[data-v]').forEach(x=>{x.onchange=()=>render();x.oninput=()=>{const f=fields[Number(x.dataset.v)];f.value=x.value;markEdited();const ev=sourceEvidence(f.value,f.source_hint,source);f.verified=ev.ok;f.evidenceType=ev.type;f.evidenceScore=ev.score;f.enabled=Boolean(x.value.trim())&&ev.ok&&!f.conflict&&ev.score>=.96;const idx=requiredMappings.findIndex(m=>m.label===f.label);if(f.enabled){const next={label:f.label,value:auditToken(f.value)};if(idx>=0)requiredMappings[idx]=next;else requiredMappings.push(next);}};});
     renderAudit();
   }
   q('#af-analyze').onclick=async()=>{
-    error('');lock(true,'جاري قراءة الملفات…');
+    error('');coverage=null;fields=[];filled=null;audit=null;placements=[];q('#af-review').hidden=true;lock(true,'جاري قراءة الملفات…');
     try{
-      source=await readSource(dataFile,status);if(!source.trim())throw Error('ملف البيانات لا يحتوي نصًا مقروءًا.');
+      const sources=[];for(const [i,file] of dataFiles.entries()){status('قراءة المصدر '+(i+1)+' / '+dataFiles.length+' · '+file.name);const text=await readSource(file,status);if(!text.trim())throw Error('المصدر فارغ أو غير مقروء: '+file.name);sources.push('[مصدر: '+file.name+']\n'+text);}source=sources.join('\n\n');if(!source.trim())throw Error('ملف البيانات لا يحتوي نصًا مقروءًا.');
       target=await readTarget(targetFile);
-      const reviewMessages=[
-        'المرحلة 1/4 — فهم النموذج واستخراج الخانات…',
-        'المرحلة 2/4 — مطابقة القيم مع المصدر…',
-        'المرحلة 3/4 — مراجعة مستقلة وإعادة تقييم الخانات الحساسة…',
-        'المرحلة 4/4 — فحص الاتساق قبل إنشاء الملف…'
-      ];
-      let reviewStep=0;
-      lock(true,reviewMessages[0]);
-      const reviewTicker=setInterval(()=>{reviewStep=Math.min(reviewMessages.length-1,reviewStep+1);status(reviewMessages[reviewStep]);},3200);
+      const started=Date.now();
+      lock(true,'جاري التحليل والمراجعة المستقلة؛ قد يستغرق بضع دقائق…');
+      const reviewTicker=setInterval(()=>status('جاري التحليل والمراجعة · مرّ '+Math.floor((Date.now()-started)/1000)+' ثانية'),1000);
       const trialCode=q('#af-trial')?.value.trim()||'';
       let aiResult;
       try{aiResult=await askAI(source,target.text,trialCode);}finally{clearInterval(reviewTicker);}
-      coverage=aiResult.coverage||null;
+      coverage=aiResult.coverage||null;notes=aiResult.notes||[];
       if(!coverage?.complete || (coverage?.missed_relevant_facts||[]).length)throw Error('التدقيق المزدوج لم يثبت التغطية الكاملة؛ لن يتم إنشاء ملف ناقص.');
       fields=verify(aiResult.fields,source);if(!fields.length)throw Error('لم أجد خانات قابلة للتعبئة.');
       requiredMappings=fields.filter(f=>f.enabled&&f.verified&&!f.conflict&&Number(f.evidenceScore||0)>=.96&&String(f.value||'').trim()).map(f=>({label:f.label,value:auditToken(f.value)}));
-      filled=await build();placements=filled.placements||[];renderAudit();if(!savedInputs){const saved=await saveCloudFiles([dataFile,targetFile],'autofill','input');savedInputs=!saved.skipped;}q('#af-review').hidden=false;render();
+      q('#af-review').hidden=false;render();
+      try{filled=await build();placements=filled.placements||[];}catch(e){render();error(e.message);status('التحليل جاهز، لكن الملف يحتاج مراجعة قبل التنزيل.');return;}
+      render();if(!savedInputs){try{const saved=await saveCloudFiles([...dataFiles,targetFile],'autofill','input');savedInputs=!saved.skipped&&!saved.failed;if(saved.failed)notes.push('تعذر حفظ بعض ملفات المصدر سحابيًا؛ النسخ الأصلية ما زالت على جهازك.');}catch{notes.push('تعذر الحفظ السحابي.');}}
       const passInfo=' · تم '+String(aiResult.reviewPasses||2)+' مراحل AI'+(aiResult.reevaluatedFields?' · أُعيد تقييم '+String(aiResult.reevaluatedFields)+' خانة حساسة':'');
       status((aiResult.filePack&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' ملف في رصيد AI.':aiResult.trial&&aiResult.credits?'تم التحليل بنجاح — متبقي '+String(aiResult.credits.remaining)+' من '+String(aiResult.credits.limit)+' محاولات.':'تم التحليل بتدقيق مزدوج وتغطية كاملة. راجع النتيجة ثم اعرض المعاينة.')+passInfo);
     }catch(e){error(e.message||'تعذر التحليل.')}finally{lock(false,status())}
@@ -780,7 +824,7 @@ export function openAutofill(ctx){
     try{
       filled=await build();placements=filled.placements||[];render();renderAudit();revoke();
       const box=q('#af-preview-box');
-      if(filled.kind==='docx'){box.innerHTML='<div class="af-doc">'+await previewDocx(filled.blob)+'</div>';q('#af-preview-note').textContent='Word بعد التعبئة'}
+      if(filled.kind==='docx'){box.innerHTML='<div class="af-doc">'+await previewDocx(filled.blob)+'</div>';q('#af-preview-note').textContent='معاينة تقريبية؛ نزّل Word للاطلاع على التنسيق الأصلي'}
       else if(filled.kind==='pdf'){const u=URL.createObjectURL(filled.blob);objectUrls.push(u);box.innerHTML='<iframe class="af-pdf" src="'+u+'" title="معاينة PDF"></iframe>';q('#af-preview-note').textContent='PDF النهائي'}
       else{box.innerHTML='<pre>'+E(filled.text||'')+'</pre>';q('#af-preview-note').textContent='النص النهائي'}
       status('المعاينة جاهزة.');
@@ -807,5 +851,5 @@ export function openAutofill(ctx){
       status(filled.kind==='docx'?'تم تجهيز ملف Word والتحقق من وجود البيانات داخله فعليًا.':'تم تجهيز الملف.');
     }catch(e){error(e.message||'تعذر تجهيز الملف.')}finally{lock(false,'')}
   };
-  return ()=>revoke();
+  return ()=>{ctx.onBusy?.(false);revoke();};
 }
