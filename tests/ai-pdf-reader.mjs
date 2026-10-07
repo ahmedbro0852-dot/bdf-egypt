@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readAiPdfPages} from '../src/ai-pdf-reader.js';
+let created=0,recognized=0,terminated=0;
+const doc={numPages:3,getPage:async i=>({getTextContent:async()=>({items:i===1?[{str:'نص أصلي',hasEOL:true}]:[]}),getOperatorList:async()=>({fnArray:i===2?[7]:[]})})};
+const options={imageCodes:[7],render:async()=>({width:100,height:100}),createWorker:async()=>{created++;return {recognize:async()=>{recognized++;return {data:{text:'نص الصورة باللغة العربية'}}},terminate:async()=>{terminated++;}}}};
+const pages=await readAiPdfPages(doc,options);
+assert.deepEqual(pages,['نص أصلي','نص الصورة باللغة العربية','']);
+assert.equal(created,1);assert.equal(recognized,1);assert.equal(terminated,1);
+const bad={numPages:1,getPage:async()=>({getTextContent:async()=>({items:[]}),getOperatorList:async()=>({fnArray:[7]})})};
+let closed=false;
+await assert.rejects(readAiPdfPages(bad,{...options,createWorker:async()=>({recognize:async()=>({data:{text:''}}),terminate:async()=>{closed=true;}})}),/لم يتم تجاهل الصفحة/);
+assert(closed);
+console.log('PASS: mixed PDFs OCR only scanned pages, preserve order and blanks, stop on unreadable scans, close worker');

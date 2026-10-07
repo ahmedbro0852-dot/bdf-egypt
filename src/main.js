@@ -75,7 +75,7 @@ const rangeField=()=>field('pages','الصفحات أو الترتيب','','text
 function options(t){switch(t.id){
 case 'pdfa':case 'searchable':return '<p class="notice">هذه الأداة تحتاج خادم التحويل المتقدم. عند تفعيله يتم إرسال الملف للمعالجة المؤقتة. خدمة PDF/A تنشئ PDF/A-2b، وOCR يضيف طبقة نص قابلة للبحث.</p>';
 case 'summarize':return select('aiOutput','صيغة النتيجة',[['docx','Word قابل للتعديل'],['txt','نص TXT']])+'<p class="notice">يتطلب تفعيل مزود الذكاء الاصطناعي. يتم إرسال النص المستخرج للمزود. الملخص قد يتضمن أخطاء ويحتاج مراجعة.</p>';
-case 'translate':return select('aiOutput','صيغة النتيجة',[['docx','Word قابل للتعديل'],['txt','نص TXT']])+select('language','لغة الترجمة',[['Arabic','العربية'],['English','الإنجليزية'],['French','الفرنسية'],['German','الألمانية']])+'<p class="notice">يتطلب تفعيل مزود الذكاء الاصطناعي. يدعم PDF وWord والنصوص والجداول والعروض والصور. النتيجة مستند جديد؛ التنسيق الأصلي والصور لا يُعاد بناؤهما تلقائيًا.</p>';
+case 'translate':return select('aiOutput','صيغة النتيجة',[['docx','Word قابل للتعديل'],['txt','نص TXT']])+select('language','لغة الترجمة',[['Arabic','العربية'],['English','الإنجليزية'],['French','الفرنسية'],['German','الألمانية']])+'<p class="notice">يتطلب تفعيل مزود الذكاء الاصطناعي. يدعم PDF وWord والنصوص والجداول والعروض والصور. الصفحات المصوّرة تُقرأ تلقائيًا عبر OCR بالعربية والإنجليزية. النتيجة مستند جديد؛ التنسيق الأصلي لا يُعاد بناؤه تلقائيًا.</p>';
 
 case 'split':return select('mode','طريقة التقسيم',[['each','كل صفحة في ملف داخل ZIP'],['range','الصفحات المختارة في ملف واحد']])+rangeField();
 case 'extract':case 'organize':case 'remove':return rangeField()+(t.id==='organize'?'<p class="field-hint">اكتب الترتيب المطلوب مثل 3,1,2. تكرار الرقم يكرّر الصفحة.</p>':'');

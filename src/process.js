@@ -3,11 +3,12 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import JSZip from 'jszip';
 import {readAiDocument,aiDocumentOutput} from './autofill.js';
+import {readAiPdfPages} from './ai-pdf-reader.js';
 import { loadPdf,mergeFiles,selectPages,pageRange,rotatePages,numberPages,safeName } from './engine.js';
 pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;
 export async function readVisual(file,password){return pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/',wasmUrl:'/wasm/'}).promise;}
 export async function renderPage(doc,index,scale=1.5){const p=await doc.getPage(index+1);const v=p.getViewport({scale});const c=document.createElement('canvas');c.width=v.width;c.height=v.height;await p.render({canvasContext:c.getContext('2d'),viewport:v}).promise;return c;}
-async function extractText(file,requireComplete=false){const d=await readVisual(file);try{const pages=[];for(let i=1;i<=d.numPages;i++){const content=await(await d.getPage(i)).getTextContent();let lines=[],line='';for(const item of content.items){line+=item.str+' ';if(item.hasEOL){lines.push(line.trim());line='';}}if(line.trim())lines.push(line.trim());const pageText=lines.join('\n');if(requireComplete&&!pageText.trim()){const ops=await(await d.getPage(i)).getOperatorList();if(ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageXObjectRepeat].includes(op)))throw Error('الصفحة '+i+' صورة بلا نص قابل للقراءة. استخدم OCR أولًا حتى لا تتسقط بياناتها.');}pages.push(pageText);}return pages;}finally{await d.destroy();}}
+async function extractText(file,requireComplete=false,progress=()=>{}){const d=await readVisual(file);try{if(requireComplete)return await readAiPdfPages(d,{render:(doc,index)=>renderPage(doc,index,2),imageCodes:[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageXObjectRepeat],onProgress:progress,createWorker:async()=>{const {createWorker}=await import('tesseract.js');return createWorker('ara+eng',1,{workerPath:'/ocr/worker.min.js',corePath:'/ocr/core',langPath:'/ocr/lang'});}});const pages=[];for(let i=1;i<=d.numPages;i++){const content=await(await d.getPage(i)).getTextContent();let lines=[],line='';for(const item of content.items){line+=item.str+' ';if(item.hasEOL){lines.push(line.trim());line='';}}if(line.trim())lines.push(line.trim());const pageText=lines.join('\n');if(requireComplete&&!pageText.trim()){const ops=await(await d.getPage(i)).getOperatorList();if(ops.fnArray.some(op=>[pdfjs.OPS.paintImageXObject,pdfjs.OPS.paintInlineImageXObject,pdfjs.OPS.paintImageXObjectRepeat].includes(op)))throw Error('الصفحة '+i+' صورة بلا نص قابل للقراءة. استخدم OCR أولًا حتى لا تتسقط بياناتها.');}pages.push(pageText);}return pages;}finally{await d.destroy();}}
 const pdfResult=async(d,name='BDF-Egypt.pdf')=>[{data:await d.save(),name,type:'application/pdf'}];
 const canvasBlob=(c,type='image/jpeg',quality=.85)=>new Promise(resolve=>c.toBlob(resolve,type,quality));
 async function stampText(doc,text,opts={}){const c=document.createElement('canvas');const ctx=c.getContext('2d');c.width=1600;c.height=160;ctx.font='bold 64px Arial';ctx.textAlign='center';ctx.fillStyle=opts.color||'#087d75';ctx.direction='rtl';ctx.fillText(text,c.width/2,105);const im=await doc.embedPng(await(await canvasBlob(c,'image/png')).arrayBuffer());for(const p of doc.getPages()){const w=Math.min(p.getWidth()*.75,500),h=w*.1;p.drawImage(im,{x:(p.getWidth()-w)/2,y:opts.y??p.getHeight()/2,width:w,height:h,opacity:opts.opacity??.25});}}
@@ -21,7 +22,7 @@ const base=files[0]?safeName(files[0].name.replace(/\.[^.]+$/,'')):'BDF-Egypt';p
 if(id==='blank'){const d=await PDFDocument.create();for(let i=0;i<Number(o.count||1);i++)d.addPage([595,842]);return pdfResult(d);}
 if(id==='html-pdf'){let html=o.html||'';if(files[0])html=await files[0].text();if(!html.trim())throw Error('أضف النص أو محتوى HTML أولًا.');return pdfResult(await htmlPdf(html));}
 if(!files.length)throw Error('اختر ملفًا أولًا.');
-if(['pdfa','searchable','summarize','translate'].includes(id))return advanced(id,files[0],o);
+if(['pdfa','searchable','summarize','translate'].includes(id))return advanced(id,files[0],o,progress);
 if(['protect','unlock'].includes(id)){if(!o.password||id==='protect'&&o.password.length<6)throw Error('اكتب كلمة مرور؛ للحماية استخدم 6 أحرف على الأقل.');if(files[0].size>2.8*1024*1024)throw Error('الحد الحالي للحماية وفتح الملفات 2.8 MB. باقي الأدوات تعمل محليًا.');const bytes=new Uint8Array(await files[0].arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));const response=await fetch('/api/security',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:id,password:o.password,file:btoa(binary)})});const data=await response.json().catch(()=>({error:'خدمة الحماية غير متاحة. جرّب مرة أخرى.'}));if(!response.ok)throw Error(data.error||'فشلت العملية.');return [{data:Uint8Array.from(atob(data.file),c=>c.charCodeAt(0)),name:base+'-'+id+'.pdf',type:'application/pdf'}];}
 if(['merge','workflow'].includes(id)){if(files.length<2)throw Error('اختر ملفين PDF على الأقل.');const d=await mergeFiles(files);if(id==='workflow'){rotatePages(d,o.rotation||0);if(o.numbering==='yes')await numberPages(d);}return pdfResult(d,'BDF-Egypt-merged.pdf');}
 if(['images-pdf','scan'].includes(id))return pdfResult(await imagesPdf(files,o),base+'.pdf');
@@ -47,11 +48,11 @@ return pdfResult(doc,base+'-'+id+'.pdf');
 }
 export const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export async function advanced(action,file,o){
+export async function advanced(action,file,o,progress=()=>{}){
  if(!['summarize','translate'].includes(action)&&file.size>2.8*1024*1024)throw Error('حد الخدمة المتقدمة 2.8 MB.');
  if(file.size>100*1024*1024)throw Error('حد الملف ١٠٠ MB.');
  let content;const isAI=['summarize','translate'].includes(action); // Pro AI only; token gating is enforced server-side.
- if(isAI){content=/\.pdf$/i.test(file.name)?(await extractText(file,true)).join('\n\n'):await readAiDocument(file);if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
+ if(isAI){content=/\.pdf$/i.test(file.name)?(await extractText(file,true,progress)).join('\n\n'):await readAiDocument(file);if(!content.trim())throw Error('الملف مصوّر. استخرج النص باستخدام OCR أولًا.');if(content.length>60000)throw Error('الحد الحالي 60 ألف حرف لكل عملية.');}
  else{const b=new Uint8Array(await file.arrayBuffer());let raw='';for(let i=0;i<b.length;i+=8192)raw+=String.fromCharCode(...b.subarray(i,i+8192));content=btoa(raw);}
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),285000);
  let response;try{response=await fetch('/api/advanced',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+(o.membershipToken||'')},body:JSON.stringify({action,content,language:o.language||'Arabic'})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة المعالجة؛ راجع الرصيد قبل إعادة المحاولة.');throw e;}finally{clearTimeout(timer);}
