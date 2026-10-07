@@ -7,7 +7,7 @@
     "dev": "node scripts/assets.mjs && vite --host 0.0.0.0",
     "build": "node scripts/assets.mjs && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/core.mjs"
+    "test": "node tests/core.mjs && node tests/autofill.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/ara": "^1.0.0",

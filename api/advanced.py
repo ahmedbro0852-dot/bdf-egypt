@@ -3,6 +3,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import os, json
 from api.subscription import verify_license
+from api.autofill_validation import validate_mapping
 
 def credit_call(payload, consume=0):
     url=os.getenv('SUPABASE_URL','').rstrip('/')
@@ -203,12 +204,13 @@ class handler(BaseHTTPRequestHandler):
 3) اختر label كما يظهر في النموذج، واجعل anchor أقصر نص مميز ومطابق حرفيًا لاسم الحقل نفسه، وليس فقرة كاملة ولا placeholder.
 4) source_hint يجب أن يكون مقتطفًا حرفيًا قصيرًا من ملف المصدر يثبت القيمة. عندما تكون القيمة نصًا أو رقمًا، اجعل المقتطف يحتوي القيمة نفسها قدر الإمكان.
 5) حافظ حرفيًا على الأسماء والأرقام والتواريخ وأرقام الهوية والهواتف والبريد؛ لا تعِد تنسيقها ولا تصححها من عندك.
-6) لو يوجد أكثر من احتمال لنفس الخانة، اختر فقط الأقوى واخفض confidence. لو لا يوجد دليل كافٍ اترك value فارغًا.
+6) لو توجد قيم متعارضة لنفس الخانة بين ملفات المصدر، اترك value فارغًا واشرح التعارض في notes مع اسم كل ملف. لا تختار آخر ملف تلقائيًا. لو لا يوجد دليل كافٍ اترك value فارغًا.
 7) لا تملأ عنوان قسم أو شرح أو ملاحظة على أنه حقل.
 8) افحص النموذج كاملًا: كل خانة فعلية قابلة للتعبئة يجب أن تظهر في fields مرة واحدة حتى لو لم تجد لها قيمة؛ وقتها اجعل value فارغًا.
 9) افحص ملف المصدر كاملًا: كل معلومة صريحة لها خانة مقابلة في النموذج يجب ربطها مرة واحدة، ولا يجوز إسقاط أي معلومة قابلة للنقل.
 10) لا تعتبر المهمة مكتملة لو بقيت خانة فعلية في النموذج غير مفحوصة أو معلومة صريحة لها خانة مقابلة ولم تُنقل.
 
+أي معلومات إضافية في المصدر بلا خانة مقابلة: اذكرها في notes بوضوح مع اسم ملف المصدر، دون إدخالها في خانة خاطئة.
 أعد JSON صالحًا فقط بالشكل:
 {"fields":[{"label":"اسم الخانة كما يظهر","anchor":"نص الحقل المطابق حرفيًا","value":"القيمة من المصدر أو فارغ","confidence":0.0,"source_hint":"مقتطف حرفي من المصدر يثبت القيمة"}],"notes":[]}
 ولا تضف أي نص خارج JSON.''';
@@ -238,6 +240,8 @@ class handler(BaseHTTPRequestHandler):
 
                 raw=result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
                 try:
+                    if result.get('choices',[{}])[0].get('finish_reason')=='length':
+                        raise ValueError('incomplete response')
                     start=raw.find('{')
                     end=raw.rfind('}')
                     parsed=json.loads(raw[start:end+1] if start>=0 and end>start else raw)
@@ -254,7 +258,7 @@ class handler(BaseHTTPRequestHandler):
 
 افحص من الصفر:
 - كل خانة فعلية في النموذج يجب أن تظهر مرة واحدة في fields، حتى لو كانت قيمتها فارغة لعدم وجود دليل في المصدر.
-- افحص النموذج أولًا وحدد الخانات الفعلية المطلوبة فقط. المعلومات الإضافية في المصدر التي لا توجد لها خانة مقابلة في النموذج تجاهلها تمامًا ولا تعتبرها نقصًا.
+- افحص النموذج أولًا وحدد الخانات الفعلية المطلوبة فقط. المعلومات الإضافية في المصدر التي لا توجد لها خانة مقابلة في النموذج اذكرها في notes كبيانات لم تُنقل لعدم وجود خانة؛ لا تعتبرها نقصًا ولا تختلق لها مكانًا.
 - لكل خانة هدف: انقل القيمة مرة واحدة فقط إذا كان لها دليل صريح في المصدر.
 - القيمة يجب أن تكون حرفية من المصدر، مع source_hint حرفي يثبتها.
 - صحح أي label/anchor/value خاطئ أو ناقص في الترشيحات.
@@ -283,6 +287,8 @@ class handler(BaseHTTPRequestHandler):
                     with urlopen(verifier_req,timeout=65) as response:
                         verifier_result=json.load(response)
                     verifier_raw=verifier_result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
+                    if verifier_result.get('choices',[{}])[0].get('finish_reason')=='length':
+                        raise ValueError('incomplete response')
                     vstart=verifier_raw.find('{')
                     vend=verifier_raw.rfind('}')
                     verified=json.loads(verifier_raw[vstart:vend+1] if vstart>=0 and vend>vstart else verifier_raw)
@@ -350,6 +356,8 @@ class handler(BaseHTTPRequestHandler):
                         with urlopen(arbiter_req,timeout=55) as response:
                             arbiter_result=json.load(response)
                         arbiter_raw=arbiter_result.get('choices',[{}])[0].get('message',{}).get('content','').strip()
+                        if arbiter_result.get('choices',[{}])[0].get('finish_reason')=='length':
+                            raise ValueError('incomplete response')
                         astart=arbiter_raw.find('{')
                         aend=arbiter_raw.rfind('}')
                         arbitrated=json.loads(arbiter_raw[astart:aend+1] if astart>=0 and aend>astart else arbiter_raw)
@@ -360,55 +368,15 @@ class handler(BaseHTTPRequestHandler):
                         # المراجع الثاني ما زال صالحًا؛ لا نفشل العملية كلها بسبب المرور الإضافي.
                         third_pass_warning='تعذر المرور الثالث؛ تم الاعتماد على التدقيق المستقل الثاني مع فحص الناتج محليًا.'
 
-                coverage=verified.get('coverage',{}) if isinstance(verified,dict) else {}
-                missed=coverage.get('missed_relevant_facts',[]) if isinstance(coverage,dict) else []
-                if not isinstance(missed,list):
-                    missed=[]
-                coverage={
-                    'complete':bool(coverage.get('complete',False)) if isinstance(coverage,dict) else False,
-                    'target_fields_checked':int(coverage.get('target_fields_checked',0) or 0) if isinstance(coverage,dict) else 0,
-                    'source_facts_checked':int(coverage.get('source_facts_checked',0) or 0) if isinstance(coverage,dict) else 0,
-                    'missed_relevant_facts':[str(x)[:400] for x in missed[:30]]
-                }
                 parsed=verified if isinstance(verified,dict) else {}
-                # وضع صارم: لو المدقق لم يثبت التغطية الكاملة لا نعتمد الملف ولا نحسب المحاولة.
-                if not coverage['complete'] or coverage['missed_relevant_facts']:
+                try:
+                    fields,coverage=validate_mapping(parsed,source_text,target_text)
+                except ValueError as err:
                     try:
                         trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
                     except Exception:
                         pass
-                    return self.respond(422,{
-                        'error':'التدقيق النهائي لم يثبت نقل كل معلومة لها خانة مقابلة؛ تم إيقاف الملف بدل إخراج نتيجة ناقصة.',
-                        'coverage':coverage
-                    })
-                fields=[]
-                seen_anchors=set()
-                for item in parsed.get('fields',[])[:160]:
-                    if not isinstance(item,dict):
-                        continue
-                    label=str(item.get('label','')).strip()[:180]
-                    if not label:
-                        continue
-                    try: confidence=max(0,min(1,float(item.get('confidence',0))))
-                    except Exception: confidence=0
-                    anchor=str(item.get('anchor',label)).strip()[:220]
-                    anchor_key=' '.join(anchor.casefold().split())
-                    if anchor_key in seen_anchors:
-                        continue
-                    seen_anchors.add(anchor_key)
-                    fields.append({
-                        'label':label,
-                        'anchor':anchor,
-                        'value':str(item.get('value','')).strip()[:1600],
-                        'confidence':confidence,
-                        'source_hint':str(item.get('source_hint','')).strip()[:600]
-                    })
-                if not fields:
-                    try:
-                        trial_call(trial_code,-1) if trial_mode else file_credit_call(license_payload,-1)
-                    except Exception:
-                        pass
-                    return self.respond(400,{'error':'لم أجد خانات واضحة قابلة للتعبئة.'})
+                    return self.respond(422,{'error':str(err),'coverage':parsed.get('coverage',{})})
                 response_notes=parsed.get('notes',[])[:30] if isinstance(parsed.get('notes',[]),list) else []
                 if third_pass_warning:
                     response_notes.append(third_pass_warning)

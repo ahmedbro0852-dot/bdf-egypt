@@ -97,7 +97,7 @@ export function openFileEditor(ctx){
   const {root,icon,refreshIcons,onClose}=ctx;
   let file=null,originalKind='',busy=false,dirty=false;
   root.innerHTML='<div class="modal-backdrop"><section class="workspace fe-workspace" role="dialog" aria-modal="true">'+
-    '<header class="workspace-header"><span class="service-logo"><span>'+icon('FilePenLine')+'</span></span><div><div class="workspace-title-row"><h2>فتح وتعديل ملف</h2><span class="workspace-tier free">مجاني</span></div><p>افتح PDF أو Word أو TXT وعدّل المحتوى ثم نزّله من جديد.</p></div><button class="icon-btn" id="fe-close">'+icon('X')+'</button></header>'+
+    '<header class="workspace-header"><span class="service-logo"><span>'+icon('FilePenLine')+'</span></span><div><div class="workspace-title-row"><h2>فتح وتعديل ملف</h2><span class="workspace-tier free">مجاني</span></div><p>افتح PDF أو Word أو TXT وعدّل المحتوى ثم نزّله من جديد.</p></div><button class="icon-btn" id="fe-close" aria-label="إغلاق محرر الملف">'+icon('X')+'</button></header>'+
     '<div class="fe-body"><div class="fe-open"><button class="primary" id="fe-pick">'+icon('FolderOpen')+'فتح ملف</button><input id="fe-file" type="file" accept=".pdf,.docx,.txt,.md" hidden><span id="fe-name">لم يتم اختيار ملف</span><span id="fe-status"></span></div>'+
     '<div class="fe-note" id="fe-note">Word وPDF يفتحان كمحتوى قابل للتعديل. عند إعادة الحفظ قد يختلف التنسيق المعقّد عن الأصل.</div>'+
     '<div class="fe-toolbar" id="fe-toolbar">'+
@@ -114,7 +114,7 @@ export function openFileEditor(ctx){
     '<div class="error" id="fe-error" hidden></div></div></section></div>';
   refreshIcons();
   const q=s=>root.querySelector(s),status=s=>q('#fe-status').textContent=s||'',error=s=>{q('#fe-error').hidden=!s;q('#fe-error').textContent=s||''};
-  const lock=v=>{busy=v;q('#fe-pick').disabled=v;q('#fe-download').disabled=v;q('#fe-close').disabled=v;};
+  const lock=v=>{busy=v;ctx.onBusy?.(v);q('#fe-pick').disabled=v;q('#fe-download').disabled=v;q('#fe-close').disabled=v;};
   const editor=q('#fe-editor');
 
   q('#fe-pick').onclick=()=>q('#fe-file').click();
@@ -161,5 +161,5 @@ export function openFileEditor(ctx){
     finally{lock(false);}
   };
   q('#fe-close').onclick=()=>{if(busy)return;if(dirty&&!confirm('عندك تعديلات غير محفوظة. إغلاق الأداة؟'))return;onClose();};
-  return ()=>{};
+  return ()=>{ctx.onBusy?.(false);};
 }
