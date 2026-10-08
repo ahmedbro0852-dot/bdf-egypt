@@ -250,7 +250,7 @@ class handler(BaseHTTPRequestHandler):
 - صحح أي label/anchor/value خاطئ أو ناقص في الترشيحات.
 - العناوين والملاحظات والنصوص التوضيحية ليست خانات.
 - وجود خانة بلا معلومة في المصدر لا يُعد نقصًا: اترك value فارغًا.
-- coverage.complete لا تكون true إلا إذا فُحصت كل خانات النموذج الفعلية، ونُقلت كل معلومة صريحة في المصدر لها خانة مقابلة في النموذج مرة واحدة، ولم يبق أي missed_relevant_facts.
+- coverage.complete لا تكون true إلا إذا فُحصت كل خانات النموذج الفعلية. لا تضع شيئًا في missed_relevant_facts إلا إذا كان له anchor حرفي واضح موجود في النموذج نفسه؛ واكتب العنصر بصيغة "ANCHOR حرفي من النموذج || سبب عدم الحسم". أي معلومة بلا خانة مقابلة تذهب إلى notes فقط ولا تمنع complete=true.
 
 أعد JSON فقط:
 {"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
@@ -309,14 +309,32 @@ class handler(BaseHTTPRequestHandler):
                             'reason':'changed' if changed else ('blank_after_review' if (not value and old_had) else 'low_confidence')
                         })
 
+                second_coverage=verified.get('coverage',{}) if isinstance(verified,dict) else {}
+                coverage_missed=second_coverage.get('missed_relevant_facts',[]) if isinstance(second_coverage,dict) else []
+                coverage_issue=(not isinstance(second_coverage,dict) or second_coverage.get('complete') is not True or bool(coverage_missed))
+
                 third_pass_used=False
                 third_pass_warning=''
-                if risky:
-                    arbiter_prompt='''أنت المراجع الثالث الحاسم لتعبئة نموذج. لديك نتيجة مراجعة ثانية وخانات حساسة فقط. أعد تقييم الملف من المصدر والنموذج، وخصوصًا الخانات المذكورة في RISKY. لا تغيّر الخانات عالية الثقة بلا سبب صريح. ممنوع التخمين. القيمة لا تعتمد إلا إذا وجدت حرفيًا أو بدليل مباشر في المصدر. إذا لم يوجد دليل اترك value فارغًا. حافظ على anchor مطابقًا لخانة النموذج. أعد القائمة الكاملة النهائية fields وليس الخانات الحساسة فقط، مع coverage. JSON فقط:
+                if risky or coverage_issue:
+                    arbiter_prompt='''أنت المراجع الثالث الحاسم لتعبئة نموذج. أعد تقييم الملف من المصدر والنموذج، وخصوصًا الخانات المذكورة في RISKY وأي مشكلة في COVERAGE_ISSUES.
+
+قواعد حاسمة للتغطية:
+- ابدأ بالنموذج، وليس بالمصدر. حدّد الخانات الفعلية القابلة للتعبئة فقط.
+- كل خانة فعلية في النموذج يجب أن تظهر مرة واحدة في fields حتى لو value فارغ.
+- أي معلومة في المصدر لا توجد لها خانة فعلية مقابلة في النموذج ليست نقصًا إطلاقًا: ضعها في notes فقط ولا تضعها في missed_relevant_facts.
+- لا تضع أي عنصر في missed_relevant_facts إلا إذا استطعت تحديد anchor قصير مطابق حرفيًا لخانة فعلية موجودة في نص النموذج.
+- إذا وجدت معلومة ناقصة ولها خانة فعلية: أصلح fields وانقلها إن كان لها دليل صريح. بعد الإصلاح لا تبقها في missed_relevant_facts.
+- missed_relevant_facts مخصص فقط لحالة نادرة تعذر فيها حسم خانة موجودة فعلًا رغم وجود معلومة مرتبطة بها؛ اكتبها بصيغة "ANCHOR حرفي من النموذج || سبب عدم الحسم".
+- الإحصاءات والفقرات الوصفية والمراجع والنتائج والتواريخ العامة التي لا يقابلها حقل في النموذج لا تمنع complete=true.
+- لا تغيّر الخانات عالية الثقة بلا سبب صريح. ممنوع التخمين. القيمة لا تعتمد إلا إذا وجدت حرفيًا أو بدليل مباشر في المصدر.
+- إذا لم يوجد دليل لخانة موجودة، اترك value فارغًا؛ مجرد كون الخانة فارغة لا يجعل coverage ناقصة.
+- حافظ على anchor مطابقًا لخانة النموذج، وأعد القائمة الكاملة النهائية fields وليس الخانات الحساسة فقط.
+
+JSON فقط:
 {"fields":[{"label":"...","anchor":"...","value":"...","confidence":0.0,"source_hint":"..."}],"coverage":{"complete":true,"target_fields_checked":0,"source_facts_checked":0,"missed_relevant_facts":[]},"notes":[]}
 '''
                     arbiter_prompt += '\nقاعدة مشتركة لكل مرور: التحديث المؤرخ الصريح والاعتماد النهائي لنفس الكيان يحلان محل القيمة القديمة، ولا يعدان تعارضًا غير محسوم. لا تعتمد ترتيب الملفات وحده. source_hint اقتباس متصل حرفيًا من المصدر دون إعادة صياغة أو نقاط حذف. عند جمع بيانات من مواضع مختلفة اختر قيمة حرفية كاملة من موضع واحد أو اترك الخانة للمراجعة؛ لا تركب قيمة غير موجودة.\n'
-                    arbiter_user='=== المصدر ===\n'+source_text+'\n\n=== النموذج ===\n'+target_text+'\n\n=== نتيجة المراجع الثاني ===\n'+json.dumps(verified,ensure_ascii=False)+'\n\n=== RISKY ===\n'+json.dumps(risky[:40],ensure_ascii=False)
+                    arbiter_user='=== المصدر ===\n'+source_text+'\n\n=== النموذج ===\n'+target_text+'\n\n=== نتيجة المراجع الثاني ===\n'+json.dumps(verified,ensure_ascii=False)+'\n\n=== RISKY ===\n'+json.dumps(risky[:40],ensure_ascii=False)+'\n\n=== COVERAGE_ISSUES ===\n'+json.dumps({'complete':second_coverage.get('complete') if isinstance(second_coverage,dict) else False,'missed_relevant_facts':coverage_missed},ensure_ascii=False)
                     arbiter_request={
                         'model':model,
                         'max_tokens':6500,
