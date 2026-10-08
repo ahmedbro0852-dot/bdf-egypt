@@ -160,7 +160,7 @@ async function askAI(source,target,trialCode=''){
   let r;
   try{r=await fetch('/api/advanced',{method:'POST',headers,signal:controller.signal,body:JSON.stringify({action:'autofill',sourceText:source,targetText:target,trialCode:hasAiPack()?'':code})});}catch(e){if(e.name==='AbortError')throw Error('انتهت مهلة التحليل. راجع الرصيد قبل إعادة المحاولة؛ قد يكون الخادم أكمل الطلب.');throw e;}finally{clearTimeout(timeout);}
   const d=await r.json().catch(()=>({}));
-  if(!r.ok){const details=(d.coverage?.missed_relevant_facts||[]).join('، ');throw Error((d.error||'تعذر تحليل الملفين.')+(details?' المعلومات التي تحتاج مراجعة: '+details:''));}
+  if(!r.ok){const missed=(d.coverage?.missed_relevant_facts||[]).map(x=>String(x||'').trim()).filter(Boolean);const shown=missed.slice(0,3).map(x=>x.length>180?x.slice(0,177)+'…':x).join('، ');const more=missed.length>3?' · +'+(missed.length-3)+' عناصر أخرى':'';throw Error((d.error||'تعذر تحليل الملفين.')+(shown?' راجع: '+shown+more:''));}
   return d;
 }
 const latinDigits=s=>String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
